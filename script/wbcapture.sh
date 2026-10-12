@@ -1,15 +1,16 @@
 #!/bin/bash
-# wbcapture.sh - whiteboard capture service (see docs/decisions/0002).
+# wbcapture.sh - whiteboard capture service (see docs/decisions/0002 and 0004).
 #
 # Loop: check camera -> take a frame every WBC_LIVE_INTERVAL s or on
-# capture.request -> update latest.jpg, hourly/, daily/ -> prune -> status.txt.
+# capture.request -> update latest/latest.jpg, hourly/, daily/ -> prune -> status.txt.
 # Written for macOS bash 3.2; also runs on Linux (used by tests/).
 
 set -u
 
-WBC_DIR="${WBC_DIR:-$HOME/WhiteboardCapture}"
+# Default: the synced Nextcloud folder (path contains spaces; always quoted).
+WBC_DIR="${WBC_DIR:-$HOME/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture}"
 WBC_CAMERA="${WBC_CAMERA:-NOVATEK J1455}"
-WBC_LIVE_INTERVAL="${WBC_LIVE_INTERVAL:-10}"
+WBC_LIVE_INTERVAL="${WBC_LIVE_INTERVAL:-30}"
 WBC_POLL="${WBC_POLL:-1}"
 WBC_CAMERA_RETRY="${WBC_CAMERA_RETRY:-5}"
 WBC_KEEP_HOURLY="${WBC_KEEP_HOURLY:-12}"
@@ -20,7 +21,7 @@ IMAGESNAP="${IMAGESNAP:-imagesnap}"
 WBC_NOW_FILE="${WBC_NOW_FILE:-}"
 
 STATUS="$WBC_DIR/status.txt"
-LATEST="$WBC_DIR/latest.jpg"
+LATEST="$WBC_DIR/latest/latest.jpg"
 REQUEST="$WBC_DIR/capture.request"
 # Trailing "~" keeps sync clients (Nextcloud excludes *~) away from temp files.
 TMP_IMG="$WBC_DIR/.wbc-frame.jpg~"
@@ -76,7 +77,7 @@ update_tiers() {
 cleanup() { rm -f "$TMP_IMG" "$TMP_STATUS"; write_status "STOPPED"; log "stopped"; exit 0; }
 
 main() {
-  mkdir -p "$WBC_DIR/hourly" "$WBC_DIR/daily" || exit 1
+  mkdir -p "$WBC_DIR/latest" "$WBC_DIR/hourly" "$WBC_DIR/daily" || exit 1
   trap cleanup TERM INT
   log "started: dir=$WBC_DIR camera='$WBC_CAMERA' interval=${WBC_LIVE_INTERVAL}s"
 

@@ -1,0 +1,5 @@
+# Captured images never go into Git (ADR-0004)
+*.jpg
+*.jpeg
+*.png
+.DS_Store
