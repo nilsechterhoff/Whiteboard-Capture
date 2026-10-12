@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -60,3 +60,4 @@ With the folder connected: the agent writes `capture.request`, the file disappea
 
 * Source: [handoff 2026-10-12](../handoff-2026-10-12.md), section 8.
 * Agent procedure: `CLAUDE.md`, "Reading the whiteboard".
+* Accepted by Nils Echterhoff on 2026-10-12.

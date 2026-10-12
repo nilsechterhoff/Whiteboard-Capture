@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -89,3 +89,4 @@ A frame taken at ~1 m from the arm mount shows normal and small text readable ac
 * Source: [handoff 2026-10-12](../handoff-2026-10-12.md), sections 3–6.
 * Fallback: a Pi Zero 2 W (~€30) as always-on host with the same A70. Upgrade path: option B.
 * Revisit if the MacBook is often unavailable during sessions, or if readability is not enough.
+* Accepted by Nils Echterhoff on 2026-10-12.
