@@ -7,7 +7,7 @@ LABEL="com.nilsechterhoff.whiteboard-capture"
 SETUP="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SETUP/../.." && pwd)"
 WBC_DIR="${1:-$HOME/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture}"
-WBC_CAMERA="${WBC_CAMERA:-NOVATEK J1455}"
+WBC_CAMERA="${WBC_CAMERA:-J1455}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/whiteboard-capture.log"
 

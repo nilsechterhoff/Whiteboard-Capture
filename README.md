@@ -18,17 +18,17 @@ Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, 
 
 | Line # | What | Where |
 |---|---|---|
-| 1 | Repository on the Mac | `~/Documents/Projects/NE_Whiteboard Capture/` |
+| 1 | Repository on the Mac | `~/Developer/NE_Whiteboard Capture/` |
 | 2 | Captured images | `~/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture/` |
 | 3 | Service log | `~/Library/Logs/whiteboard-capture.log` |
 
-Images are **not** in Git (ADR-0004).
+Images are **not** in Git (ADR-0004). The repo is **not** in `~/Documents`: macOS blocks the launchd service from reading files there.
 
 ## Quick start (on the Mac)
 
 ```sh
 brew install imagesnap
-imagesnap -l                       # check the A70 name (expected: "NOVATEK J1455")
+imagesnap -l                       # check the A70 name (expected: "J1455", the A70's chip name)
 project/setup/install.sh           # default capture folder: the Nextcloud folder above
 ```
 
@@ -52,7 +52,7 @@ Environment variables, set in the launchd plist (`install.sh` fills folder and p
 | Line # | Variable | Default | Purpose |
 |---|---|---|---|
 | 1 | `WBC_DIR` | the Nextcloud folder above | Capture folder |
-| 2 | `WBC_CAMERA` | `NOVATEK J1455` | Camera name as listed by `imagesnap -l` |
+| 2 | `WBC_CAMERA` | `J1455` | Camera name as listed by `imagesnap -l` |
 | 3 | `WBC_LIVE_INTERVAL` | `30` | Seconds between live frames |
 | 4 | `WBC_POLL` | `1` | Loop tick in seconds (trigger-file latency) |
 | 5 | `WBC_CAMERA_RETRY` | `5` | Seconds between camera checks when absent |
