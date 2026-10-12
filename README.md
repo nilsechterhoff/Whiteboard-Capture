@@ -1,6 +1,6 @@
 # Whiteboard-Capture
 
-Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, summarize and build on it during and between whiteboard sessions, near-live (every ~30 s).
+Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, summarize and build on it during and between whiteboard sessions, near-live (every ~20 s).
 
 **Pipeline:** APEMAN A70 (USB, PC camera mode) → `script/wbcapture.sh` (launchd, `imagesnap`) → **Nextcloud folder** on the Mac → Nextcloud sync → any Claude instance reads it.
 
@@ -39,7 +39,7 @@ On first start macOS may ask for **camera access** and for **access to Nextcloud
 | Line # | Path | Meaning |
 |---|---|---|
 | 1 | `status.txt` | Read first: `OK 2026-10-12 16:31:05`, or `CAMERA_NOT_FOUND` / `CAPTURE_FAILED` / `STOPPED` + time |
-| 2 | `latest/latest.jpg` | One file, overwritten every **30 s** while the camera is present |
+| 2 | `latest/latest.jpg` | One file, overwritten every **20 s** while the camera is present |
 | 3 | `hourly/YYYY-MM-DD_HH.jpg` | First frame of each hour, last **12** kept |
 | 4 | `daily/YYYY-MM-DD.jpg` | First frame of each day, last **7** kept |
 | 5 | `capture.request` | Agent creates it → fresh frame within ~1–2 s → service deletes it |
@@ -53,7 +53,7 @@ Environment variables, set in the launchd plist (`install.sh` fills folder and p
 |---|---|---|---|
 | 1 | `WBC_DIR` | the Nextcloud folder above | Capture folder |
 | 2 | `WBC_CAMERA` | `J1455` | Camera name as listed by `imagesnap -l` |
-| 3 | `WBC_LIVE_INTERVAL` | `30` | Seconds between live frames |
+| 3 | `WBC_LIVE_INTERVAL` | `20` | Seconds between live frames |
 | 4 | `WBC_POLL` | `1` | Loop tick in seconds (trigger-file latency) |
 | 5 | `WBC_CAMERA_RETRY` | `5` | Seconds between camera checks when absent |
 | 6 | `WBC_KEEP_HOURLY` / `WBC_KEEP_DAILY` | `12` / `7` | Retention per tier |

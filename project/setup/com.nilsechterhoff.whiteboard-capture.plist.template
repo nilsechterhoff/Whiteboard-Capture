@@ -19,7 +19,7 @@
     <key>WBC_CAMERA</key>
     <string>__WBC_CAMERA__</string>
     <key>WBC_LIVE_INTERVAL</key>
-    <string>30</string>
+    <string>20</string>
     <key>WBC_KEEP_HOURLY</key>
     <string>12</string>
     <key>WBC_KEEP_DAILY</key>

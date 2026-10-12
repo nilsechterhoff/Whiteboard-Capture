@@ -21,7 +21,7 @@ EOF
 chmod +x "$T/imagesnap"
 
 export STUB_DIR="$T" IMAGESNAP="$T/imagesnap" WBC_DIR="$T/Whiteboard Capture" WBC_NOW_FILE="$T/now"
-export WBC_LIVE_INTERVAL=30 WBC_POLL=0.2 WBC_CAMERA_RETRY=0.2 WBC_WARMUP=0
+export WBC_LIVE_INTERVAL=20 WBC_POLL=0.2 WBC_CAMERA_RETRY=0.2 WBC_WARMUP=0
 NOW=1791800000   # fixed start time
 echo $NOW > "$T/now"; touch "$T/camera"
 
@@ -39,9 +39,9 @@ check "status OK" 'grep -q "^OK " "$WBC_DIR/status.txt"'
 check "1 hourly, 1 daily" '[ "$(count hourly)" = 1 ] && [ "$(count daily)" = 1 ]'
 check "latest/ holds exactly 1 file" '[ "$(ls -A "$WBC_DIR/latest" | wc -l)" -eq 1 ]'
 
-echo "2. No capture before interval (30 s)"
-f=$(frame); NOW=$((NOW + 20)); echo $NOW > "$T/now"; sleep 1
-check "same frame after 20 s" '[ "$(frame)" = "$f" ]'
+echo "2. No capture before interval (20 s)"
+f=$(frame); NOW=$((NOW + 15)); echo $NOW > "$T/now"; sleep 1
+check "same frame after 15 s" '[ "$(frame)" = "$f" ]'
 
 echo "3. Hourly tier: 14 hours later"
 for i in $(seq 14); do advance 3600; done
