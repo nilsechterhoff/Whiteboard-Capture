@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -62,3 +62,4 @@ This supersedes only the interval in ADR-0004 (30 s). Everything else in ADR-000
 
 * Requested by Nils on 2026-10-12; implemented in PR #6.
 * Related: ADR-0002 (capture service), ADR-0004 (Nextcloud storage, 30 s).
+* Accepted by Nils Echterhoff on 2026-10-12.

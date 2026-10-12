@@ -12,7 +12,7 @@ Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, 
 | 2 | Capture service | Built, tested on Linux with a stubbed camera; **not yet run on the Mac** |
 | 3 | ADRs 0001–0003 | `accepted` (2026-10-12) |
 | 4 | ADR-0004 (Nextcloud storage, 30 s) | `accepted` (2026-10-12) |
-| 5 | ADR-0005 (20 s interval) | `proposed` |
+| 5 | ADR-0005 (20 s interval) | `accepted` (2026-10-12) |
 | 6 | Next steps | [project/backlog.md](project/backlog.md) |
 
 ## Where things live
@@ -87,4 +87,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 2 | 0002 | [Run capture as a launchd agent with tiered retention](docs/decisions/0002-run-capture-as-a-launchd-agent-with-tiered-retention.md) | accepted |
 | 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | accepted |
 | 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
-| 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | proposed |
+| 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | accepted |
