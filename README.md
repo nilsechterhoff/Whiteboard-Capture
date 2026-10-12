@@ -10,7 +10,7 @@ Captures the current state of a **120 × 90 cm whiteboard** so an agent (Claude)
 |---|---|---|
 | 1 | Concept and hardware | Chosen and tested (see [handoff](docs/handoff-2026-10-12.md)) |
 | 2 | Capture service | Built, tested on Linux with a stubbed camera; **not yet run on the Mac** |
-| 3 | ADRs 0001–0003 | `proposed`, awaiting Nils's acceptance |
+| 3 | ADRs 0001–0003 | `accepted` (2026-10-12) |
 | 4 | Next steps | [docs/backlog.md](docs/backlog.md) |
 
 ## Quick start (on the Mac)
@@ -74,6 +74,6 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 
 | Line # | ADR | Title | Status |
 |---|---|---|---|
-| 1 | 0001 | [Capture with the APEMAN A70 over USB on the MacBook](docs/decisions/0001-capture-with-apeman-a70-over-usb-on-the-macbook.md) | proposed |
-| 2 | 0002 | [Run capture as a launchd agent with tiered retention](docs/decisions/0002-run-capture-as-a-launchd-agent-with-tiered-retention.md) | proposed |
-| 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | proposed |
+| 1 | 0001 | [Capture with the APEMAN A70 over USB on the MacBook](docs/decisions/0001-capture-with-apeman-a70-over-usb-on-the-macbook.md) | accepted |
+| 2 | 0002 | [Run capture as a launchd agent with tiered retention](docs/decisions/0002-run-capture-as-a-launchd-agent-with-tiered-retention.md) | accepted |
+| 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | accepted |
