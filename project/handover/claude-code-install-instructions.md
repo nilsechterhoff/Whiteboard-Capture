@@ -6,10 +6,10 @@ Paste the block below into a Claude Code session in Terminal on the Mac.
 Task: install and verify the whiteboard capture service on this Mac (backlog item BL-002).
 
 CONTEXT
-- Repo: /Users/nilsechterhoff/Documents/Projects/NE_Whiteboard Capture
+- Repo: /Users/nilsechterhoff/Developer/NE_Whiteboard Capture
   (github.com/nilsechterhoff/Whiteboard-Capture, branch main). Read README.md and CLAUDE.md first.
 - If that folder does not exist yet, stop and ask me before cloning it.
-- Camera: APEMAN A70, USB, in "PC Camera" mode. Expected name in `imagesnap -l`: "NOVATEK J1455".
+- Camera: APEMAN A70, USB, in "PC Camera" mode. Expected name in `imagesnap -l`: "J1455".
 - Capture folder (Nextcloud, synced; contains spaces, quote it):
   /Users/nilsechterhoff/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture
 
@@ -23,12 +23,12 @@ RULES
 STEPS (run in order, show the output of each)
 1. `command -v brew` — if missing, stop and tell me.
 2. `command -v imagesnap || brew install imagesnap`
-3. `imagesnap -l` — confirm "NOVATEK J1455". If the name differs, use the exact listed name as WBC_CAMERA in step 5.
+3. `imagesnap -l` — confirm "J1455". If the name differs, use the exact listed name as WBC_CAMERA in step 5.
 4. Test shot (macOS may ask for camera access; I will click Allow):
-   `imagesnap -w 1 -d "NOVATEK J1455" "/Users/nilsechterhoff/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture/test-terminal.jpg"`
+   `imagesnap -w 1 -d "J1455" "/Users/nilsechterhoff/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture/test-terminal.jpg"`
    Confirm the file exists and is > 50 KB.
 5. Install the service (default capture folder is the Nextcloud folder):
-   `cd "/Users/nilsechterhoff/Documents/Projects/NE_Whiteboard Capture" && project/setup/install.sh`
+   `cd "/Users/nilsechterhoff/Developer/NE_Whiteboard Capture" && project/setup/install.sh`
    (prefix with WBC_CAMERA="<name>" only if step 3 showed a different name)
 6. Wait 40 seconds, then check (CAP = the capture folder, quoted):
    a. `cat "$CAP/status.txt"` → expect "OK <timestamp>"

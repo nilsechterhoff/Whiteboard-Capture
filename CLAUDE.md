@@ -15,7 +15,7 @@ Tasks and open ideas go to `project/backlog.md`, not into ADRs.
 
 | Line # | What | Where |
 |---|---|---|
-| 1 | Repository on the Mac | `~/Documents/Projects/NE_Whiteboard Capture/` |
+| 1 | Repository on the Mac | `~/Developer/NE_Whiteboard Capture/` |
 | 2 | Capture folder (Nextcloud, not in Git) | `~/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture/` |
 
 Never commit captured images to Git (ADR-0004).

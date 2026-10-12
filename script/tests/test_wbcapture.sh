@@ -13,7 +13,7 @@ wait_for() { local i=0; while [ $i -lt 100 ]; do eval "$1" && return 0; sleep 0.
 # Stub: camera "present" while $T/camera exists; each frame holds a counter.
 cat > "$T/imagesnap" <<'EOF'
 #!/bin/bash
-if [ "$1" = "-l" ]; then echo "Video Devices:"; [ -e "$STUB_DIR/camera" ] && echo "=> NOVATEK J1455"; exit 0; fi
+if [ "$1" = "-l" ]; then echo "Video Devices:"; [ -e "$STUB_DIR/camera" ] && echo "=> J1455"; exit 0; fi
 [ -e "$STUB_DIR/camera" ] || exit 1
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/count"
 for out; do :; done; echo "frame $n" > "$out"

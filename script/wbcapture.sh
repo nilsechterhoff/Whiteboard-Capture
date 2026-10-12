@@ -9,7 +9,7 @@ set -u
 
 # Default: the synced Nextcloud folder (path contains spaces; always quoted).
 WBC_DIR="${WBC_DIR:-$HOME/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture}"
-WBC_CAMERA="${WBC_CAMERA:-NOVATEK J1455}"
+WBC_CAMERA="${WBC_CAMERA:-J1455}"
 WBC_LIVE_INTERVAL="${WBC_LIVE_INTERVAL:-30}"
 WBC_POLL="${WBC_POLL:-1}"
 WBC_CAMERA_RETRY="${WBC_CAMERA_RETRY:-5}"
