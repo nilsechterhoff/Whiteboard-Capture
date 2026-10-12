@@ -35,7 +35,7 @@ STEPS (run in order, show the output of each)
    b. `ls -la "$CAP" "$CAP/latest" "$CAP/hourly" "$CAP/daily"` → expect latest/latest.jpg, one file in hourly/, one in daily/
    c. `tail -30 ~/Library/Logs/whiteboard-capture.log`
    d. `launchctl print gui/$(id -u)/com.nilsechterhoff.whiteboard-capture | head -30`
-7. Live check: note the modification time of latest/latest.jpg, wait 35 s, confirm it changed.
+7. Live check: note the modification time of latest/latest.jpg, wait 25 s, confirm it changed.
 8. Trigger check: `touch "$CAP/capture.request"`, wait 3 s, confirm the file is gone and latest/latest.jpg is newer.
 9. Open latest/latest.jpg and describe what is visible (whiteboard in frame? text readable?).
 10. Ask me whether to delete test-terminal.jpg.

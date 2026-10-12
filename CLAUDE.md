@@ -28,7 +28,7 @@ All paths are relative to the capture folder.
 |---|---|---|
 | 1 | Read `status.txt` | Not `OK` → tell Nils (camera unplugged, off, or in mass storage mode) |
 | 2 | Need a fresh frame? | Create an empty `capture.request`, wait ~2–3 s, re-read until the file is gone (only with write access to the folder) |
-| 3 | Read `latest/latest.jpg` | Updated every ~30 s. Flag it if its timestamp is older than ~1.5 min |
+| 3 | Read `latest/latest.jpg` | Updated every ~20 s. Flag it if its timestamp is older than ~1 min |
 | 4 | History | `hourly/` (last 12 h), `daily/` (last 7 days) |
 
 Image quality notes: moderate fisheye at the corners; exposure may be dim with a yellow cast when the doorway is in frame.
