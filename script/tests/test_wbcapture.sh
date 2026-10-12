@@ -1,6 +1,6 @@
 #!/bin/bash
 # test_wbcapture.sh - runs script/wbcapture.sh against a stubbed imagesnap and a
-# fake clock. No camera needed; runs on Linux and macOS. ~10 s.
+# fake clock. No camera needed; runs on Linux and macOS. ~20 s.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -11,17 +11,28 @@ check() { if eval "$2"; then echo "  PASS  $1"; pass=$((pass+1)); else echo "  F
 wait_for() { local i=0; while [ $i -lt 100 ]; do eval "$1" && return 0; sleep 0.1; i=$((i+1)); done; return 1; }
 
 # Stub: camera "present" while $T/camera exists; each frame holds a counter.
-cat > "$T/imagesnap" <<'EOF'
+# $T/fail -> capture fails with imagesnap's real error text; $T/hang -> capture hangs.
+# Every "-l" call is counted in $T/listcount.
+cat > "$T/imagesnap" <<'STUB'
 #!/bin/bash
-if [ "$1" = "-l" ]; then echo "Video Devices:"; [ -e "$STUB_DIR/camera" ] && echo "=> J1455"; exit 0; fi
+if [ "$1" = "-l" ]; then
+  echo $(( $(cat "$STUB_DIR/listcount" 2>/dev/null || echo 0) + 1 )) > "$STUB_DIR/listcount"
+  echo "Video Devices:"; [ -e "$STUB_DIR/camera" ] && echo "=> J1455"; exit 0
+fi
 [ -e "$STUB_DIR/camera" ] || exit 1
+[ -e "$STUB_DIR/hang" ] && exec sleep 100
+if [ -e "$STUB_DIR/fail" ]; then
+  echo "objc[1]: class NSKVONotifying_AVCapturePhotoOutput not linked into application" >&2
+  echo "Error: Failed to capture photo." >&2; exit 1
+fi
 n=$(( $(cat "$STUB_DIR/count" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_DIR/count"
 for out; do :; done; echo "frame $n" > "$out"
-EOF
+STUB
 chmod +x "$T/imagesnap"
 
 export STUB_DIR="$T" IMAGESNAP="$T/imagesnap" WBC_DIR="$T/Whiteboard Capture" WBC_NOW_FILE="$T/now"
 export WBC_LIVE_INTERVAL=20 WBC_POLL=0.2 WBC_CAMERA_RETRY=0.2 WBC_WARMUP=0
+export WBC_TMP="$T/tmp" WBC_FAIL_RETRY=0.3 WBC_CAPTURE_TIMEOUT=1 WBC_LOCK_WAIT=0.2
 NOW=1791800000   # fixed start time
 echo $NOW > "$T/now"; touch "$T/camera"
 
@@ -72,10 +83,41 @@ wait_for '[ ! -e "$WBC_DIR/capture.request" ]'
 check "request served after reconnect" '[ ! -e "$WBC_DIR/capture.request" ]'
 check "status OK again" 'grep -q "^OK " "$WBC_DIR/status.txt"'
 
-echo "8. Stop"
+echo "8. Camera list only when a frame is due (clock frozen, no request)"
+c1=$(cat "$T/listcount"); sleep 2; c2=$(cat "$T/listcount")
+check "no camera queries between frames" '[ "$c1" = "$c2" ]'
+
+echo "9. Failure: real error is logged, retry recovers"
+touch "$T/fail"; NOW=$((NOW + 20)); echo $NOW > "$T/now"
+wait_for 'grep -q "^CAPTURE_FAILED " "$WBC_DIR/status.txt"'
+check "status CAPTURE_FAILED" 'grep -q "^CAPTURE_FAILED " "$WBC_DIR/status.txt"'
+check "log shows imagesnap error" 'grep -q "capture failed: exit=1: Error: Failed to capture photo." "$T/log"'
+check "objc warning filtered" '! grep -q "not linked" "$T/log"'
+rm "$T/fail"
+wait_for 'grep -q "^OK " "$WBC_DIR/status.txt"'
+check "recovers after failure" 'grep -q "^OK " "$WBC_DIR/status.txt"'
+
+echo "10. Hanging imagesnap is killed after the time limit"
+touch "$T/hang"; NOW=$((NOW + 20)); echo $NOW > "$T/now"
+wait_for 'grep -q "killed" "$T/log"'
+check "hang reported in log" 'grep -q "no result after 1s, killed" "$T/log"'
+rm "$T/hang"
+sleep 2   # longer than time limit + kill grace, so any in-flight attempt is gone
+check "no hung imagesnap left" '! ps -eo args | grep -v grep | grep -q "^sleep 100"'
+wait_for 'grep -q "^OK " "$WBC_DIR/status.txt"'
+check "recovers after hang" 'grep -q "^OK " "$WBC_DIR/status.txt"'
+
+echo "11. Second instance refuses to start"
+bash "$ROOT/script/wbcapture.sh" > "$T/log2" 2>&1; rc2=$?
+check "second instance exits" '[ "$rc2" = 0 ]'
+check "second instance says already running" 'grep -q "already running (pid $PID)" "$T/log2"'
+check "first instance still OK" 'kill -0 $PID && grep -q "^OK " "$WBC_DIR/status.txt"'
+
+echo "12. Stop"
 kill -TERM $PID; wait $PID 2>/dev/null
 check "status STOPPED" 'grep -q "^STOPPED " "$WBC_DIR/status.txt"'
-check "no temp files left" '[ -z "$(ls -A "$WBC_DIR" | grep "~$")" ]'
+check "no temp files left" '[ -z "$(ls -A "$WBC_DIR" "$WBC_DIR/latest" | grep "~$")" ]'
+check "lock released" '[ ! -e "$T/tmp/wbcapture.lock" ]'
 
 echo; echo "Passed: $pass  Failed: $fail"
 [ $fail -eq 0 ]
