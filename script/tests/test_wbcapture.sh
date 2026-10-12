@@ -1,9 +1,9 @@
 #!/bin/bash
-# test_wbcapture.sh - runs src/wbcapture.sh against a stubbed imagesnap and a
+# test_wbcapture.sh - runs script/wbcapture.sh against a stubbed imagesnap and a
 # fake clock. No camera needed; runs on Linux and macOS. ~10 s.
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 T="$(mktemp -d)"
 trap 'kill $PID 2>/dev/null; rm -rf "$T"' EXIT
 pass=0; fail=0
@@ -20,27 +20,28 @@ for out; do :; done; echo "frame $n" > "$out"
 EOF
 chmod +x "$T/imagesnap"
 
-export STUB_DIR="$T" IMAGESNAP="$T/imagesnap" WBC_DIR="$T/cap" WBC_NOW_FILE="$T/now"
-export WBC_LIVE_INTERVAL=10 WBC_POLL=0.2 WBC_CAMERA_RETRY=0.2 WBC_WARMUP=0
+export STUB_DIR="$T" IMAGESNAP="$T/imagesnap" WBC_DIR="$T/Whiteboard Capture" WBC_NOW_FILE="$T/now"
+export WBC_LIVE_INTERVAL=30 WBC_POLL=0.2 WBC_CAMERA_RETRY=0.2 WBC_WARMUP=0
 NOW=1791800000   # fixed start time
 echo $NOW > "$T/now"; touch "$T/camera"
 
-bash "$ROOT/src/wbcapture.sh" > "$T/log" 2>&1 &
+bash "$ROOT/script/wbcapture.sh" > "$T/log" 2>&1 &
 PID=$!
 
-frame() { cat "$WBC_DIR/latest.jpg" 2>/dev/null; }
+frame() { cat "$WBC_DIR/latest/latest.jpg" 2>/dev/null; }
 advance() { local before; before=$(frame); NOW=$((NOW + $1)); echo $NOW > "$T/now"; wait_for '[ "$(frame)" != "$before" ]'; }
 count() { ls -1 "$WBC_DIR/$1" | grep -c '\.jpg$'; }
 
 echo "1. Start"
-wait_for '[ -s "$WBC_DIR/latest.jpg" ]'
-check "latest.jpg written" '[ -s "$WBC_DIR/latest.jpg" ]'
+wait_for '[ -s "$WBC_DIR/latest/latest.jpg" ]'
+check "latest/latest.jpg written" '[ -s "$WBC_DIR/latest/latest.jpg" ]'
 check "status OK" 'grep -q "^OK " "$WBC_DIR/status.txt"'
 check "1 hourly, 1 daily" '[ "$(count hourly)" = 1 ] && [ "$(count daily)" = 1 ]'
+check "latest/ holds exactly 1 file" '[ "$(ls -A "$WBC_DIR/latest" | wc -l)" -eq 1 ]'
 
-echo "2. No capture before interval"
-f=$(frame); NOW=$((NOW + 5)); echo $NOW > "$T/now"; sleep 1
-check "same frame after 5 s" '[ "$(frame)" = "$f" ]'
+echo "2. No capture before interval (30 s)"
+f=$(frame); NOW=$((NOW + 20)); echo $NOW > "$T/now"; sleep 1
+check "same frame after 20 s" '[ "$(frame)" = "$f" ]'
 
 echo "3. Hourly tier: 14 hours later"
 for i in $(seq 14); do advance 3600; done
