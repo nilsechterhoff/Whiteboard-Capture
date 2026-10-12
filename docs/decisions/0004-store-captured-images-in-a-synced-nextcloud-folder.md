@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -84,3 +84,4 @@ On the Mac: after install, `status.txt` shows `OK` and `latest/latest.jpg` updat
 * Decided in the session of 2026-10-12, after comparing GitHub and Nextcloud options.
 * Related: ADR-0002 (capture service), ADR-0003 (folder + trigger file).
 * Follow-up in the backlog: choose and set up the Nextcloud access for Claude instances (MCP server).
+* Accepted by Nils Echterhoff on 2026-10-12.

@@ -14,6 +14,6 @@ Tasks and open ideas (not decisions; decisions go to `docs/decisions/` per STD-0
 | 8 | BL-008 | Image cleanup: fisheye/perspective and white balance (OpenCV), only if accuracy suffers | – | Idea |
 | 9 | BL-009 | Background analyzer agent on hourly/daily history | – | Idea |
 | 10 | BL-010 | Upgrade path: local MCP server `capture_whiteboard` (see ADR-0003) | – | Idea |
-| 11 | BL-011 | Review and accept ADR-0004 (Nextcloud storage, 30 s interval) | Nils | Open |
+| 11 | BL-011 | Review and accept ADR-0004 (Nextcloud storage, 30 s interval) | Nils | Done (2026-10-12) |
 | 12 | BL-012 | Choose and set up Nextcloud access for all Claude instances (e.g. Nextcloud MCP server) → ADR | Nils + Claude | Open |
 | 13 | BL-013 | Clone the repo to `~/Documents/Projects/NE_Whiteboard Capture/`; remove the earlier test copies in `~/Claude/` | Claude (with Nils's approval) | Open |

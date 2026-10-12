@@ -11,7 +11,7 @@ Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, 
 | 1 | Concept and hardware | Chosen and tested (see [handoff](project/handover/handoff-2026-10-12.md)) |
 | 2 | Capture service | Built, tested on Linux with a stubbed camera; **not yet run on the Mac** |
 | 3 | ADRs 0001–0003 | `accepted` (2026-10-12) |
-| 4 | ADR-0004 (Nextcloud storage, 30 s) | `proposed` |
+| 4 | ADR-0004 (Nextcloud storage, 30 s) | `accepted` (2026-10-12) |
 | 5 | Next steps | [project/backlog.md](project/backlog.md) |
 
 ## Where things live
@@ -85,4 +85,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 1 | 0001 | [Capture with the APEMAN A70 over USB on the MacBook](docs/decisions/0001-capture-with-apeman-a70-over-usb-on-the-macbook.md) | accepted |
 | 2 | 0002 | [Run capture as a launchd agent with tiered retention](docs/decisions/0002-run-capture-as-a-launchd-agent-with-tiered-retention.md) | accepted |
 | 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | accepted |
-| 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | proposed |
+| 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
