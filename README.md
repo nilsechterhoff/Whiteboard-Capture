@@ -59,6 +59,9 @@ Environment variables, set in the launchd plist (`install.sh` fills folder and p
 | 5 | `WBC_CAMERA_RETRY` | `5` | Seconds between camera checks when absent |
 | 6 | `WBC_KEEP_HOURLY` / `WBC_KEEP_DAILY` | `12` / `7` | Retention per tier |
 | 7 | `WBC_WARMUP` | `1` | `imagesnap -w` warm-up seconds (exposure settle) |
+| 8 | `WBC_CAPTURE_TIMEOUT` | `20` | imagesnap is killed if it gives no result within this many seconds |
+| 9 | `WBC_FAIL_RETRY` | `30` | Seconds to wait after a failed capture before trying again |
+| 10 | `WBC_TMP` | `/tmp` | Scratch folder for the raw frame and the single-instance lock |
 
 ## Repository layout
 
