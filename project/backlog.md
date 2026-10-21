@@ -19,3 +19,5 @@ Tasks and open ideas (not decisions; decisions go to `docs/decisions/` per STD-0
 | 13 | BL-013 | Remove the earlier test copies in `~/Claude/` | Claude | Done (2026-10-12) |
 | 14 | BL-014 | Move the repo to `~/Developer/NE_Whiteboard Capture/` (launchd cannot read `~/Documents`) and reinstall the service | Nils + Claude Code | Open |
 | 15 | BL-015 | Review and accept ADR-0005 (20 s interval) | Nils | Done (2026-10-12) |
+| 16 | BL-016 | Rebuild capture around one ffmpeg stream (ADR-0006): review ADR-0006, merge PR, install on the Mac, 30 min test with the C930e | Nils + Claude | In progress (branch `adr/0006-open-camera-capture`) |
+| 17 | BL-017 | Decide the ffmpeg source on the Mac (`brew install ffmpeg`, or `~/ffmpeg-static/ffmpeg` via `WBC_FFMPEG`) and camera permission for ffmpeg | Nils | Open |

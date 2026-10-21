@@ -16,8 +16,10 @@
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>WBC_DIR</key>
     <string>__WBC_DIR__</string>
-    <key>WBC_CAMERA</key>
-    <string>__WBC_CAMERA__</string>
+    <key>WBC_CAMERA_SERIAL</key>
+    <string>__WBC_CAMERA_SERIAL__</string>
+    <key>WBC_FFMPEG</key>
+    <string>__WBC_FFMPEG__</string>
     <key>WBC_LIVE_INTERVAL</key>
     <string>20</string>
     <key>WBC_KEEP_HOURLY</key>

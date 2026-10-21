@@ -2,14 +2,14 @@
 
 Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, summarize and build on it during and between whiteboard sessions, near-live (every ~20 s).
 
-**Pipeline:** APEMAN A70 (USB, PC camera mode) → `script/wbcapture.sh` (launchd, `imagesnap`) → **Nextcloud folder** on the Mac → Nextcloud sync → any Claude instance reads it.
+**Pipeline:** Logitech C930e (USB) → one open ffmpeg stream, supervised by `script/wbcapture.sh` (launchd) → **Nextcloud folder** on the Mac → Nextcloud sync → any Claude instance reads it.
 
 ## Status
 
 | Line # | Item | Status |
 |---|---|---|
 | 1 | Concept and hardware | Chosen and tested (see [handoff](project/handover/handoff-2026-10-12.md)) |
-| 2 | Capture service | Built, tested on Linux with a stubbed camera; **not yet run on the Mac** |
+| 2 | Capture service | Rebuilt around one open ffmpeg stream (ADR-0006, proposed); tested with a stubbed ffmpeg (29/29); **not yet run on the Mac** |
 | 3 | ADRs 0001–0003 | `accepted` (2026-10-12) |
 | 4 | ADR-0004 (Nextcloud storage, 30 s) | `accepted` (2026-10-12) |
 | 5 | ADR-0005 (20 s interval) | `accepted` (2026-10-12) |
@@ -28,8 +28,8 @@ Images are **not** in Git (ADR-0004). The repo is **not** in `~/Documents`: macO
 ## Quick start (on the Mac)
 
 ```sh
-brew install imagesnap
-imagesnap -l                       # check the A70 name (expected: "J1455", the A70's chip name)
+brew install ffmpeg
+ffmpeg -hide_banner -f avfoundation -list_devices true -i ""   # check the camera serial (C930e: 7B5E845E)
 project/setup/install.sh           # default capture folder: the Nextcloud folder above
 ```
 
@@ -53,13 +53,13 @@ Environment variables, set in the launchd plist (`install.sh` fills folder and p
 | Line # | Variable | Default | Purpose |
 |---|---|---|---|
 | 1 | `WBC_DIR` | the Nextcloud folder above | Capture folder |
-| 2 | `WBC_CAMERA` | `J1455` | Camera name as listed by `imagesnap -l` |
+| 2 | `WBC_CAMERA_SERIAL` | `7B5E845E` | Serial of the camera, as listed by ffmpeg `-list_devices` (the C930e; two are connected) |
 | 3 | `WBC_LIVE_INTERVAL` | `20` | Seconds between live frames |
 | 4 | `WBC_POLL` | `1` | Loop tick in seconds (trigger-file latency) |
 | 5 | `WBC_CAMERA_RETRY` | `5` | Seconds between camera checks when absent |
 | 6 | `WBC_KEEP_HOURLY` / `WBC_KEEP_DAILY` | `12` / `7` | Retention per tier |
-| 7 | `WBC_WARMUP` | `1` | `imagesnap -w` warm-up seconds (exposure settle) |
-| 8 | `WBC_CAPTURE_TIMEOUT` | `20` | imagesnap is killed if it gives no result within this many seconds |
+| 7 | `WBC_FFMPEG` | `ffmpeg` on PATH | ffmpeg binary; set a full path if it is not on PATH |
+| 8 | `WBC_STALL_LIMIT` | `60` | ffmpeg is restarted if no new frame arrives within this many seconds |
 | 9 | `WBC_FAIL_RETRY` | `30` | Seconds to wait after a failed capture before trying again |
 | 10 | `WBC_TMP` | `/tmp` | Scratch folder for the raw frame and the single-instance lock |
 
@@ -91,3 +91,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | accepted |
 | 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
 | 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | accepted |
+| 6 | 0006 | [Capture from an open camera stream](docs/decisions/0006-capture-from-an-open-camera-stream.md) | proposed |
