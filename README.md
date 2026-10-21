@@ -92,3 +92,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
 | 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | accepted |
 | 6 | 0006 | [Capture from an open camera stream](docs/decisions/0006-capture-from-an-open-camera-stream.md) | proposed |
+| 7 | 0007 | [Use the Logitech C930e as the capture camera](docs/decisions/0007-use-the-logitech-c930e-as-the-capture-camera.md) | proposed |
