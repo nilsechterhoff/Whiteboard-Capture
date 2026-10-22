@@ -3,8 +3,8 @@
 | Line # | Item | Value |
 |---|---|---|
 | 1 | Created | 2026-10-22 12:06 (Europe/Copenhagen) |
-| 2 | Last updated | 2026-10-22 13:50 |
-| 3 | **Current main path** | **MVP B** (Dropbox request/description loop), see [ADR-0006](../docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) and [ADR-0007](../docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) (both `accepted`, 2026-10-22) |
+| 2 | Last updated | 2026-10-22 14:40 (ADR-0008: API watcher takes the photo, YAML, subfolders) |
+| 3 | **Current main path** | **MVP B** (Dropbox request/description loop), see [ADR-0006](../docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) and [ADR-0008](../docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) (both `accepted`, 2026-10-22; ADR-0007 superseded by ADR-0008) |
 | 4 | Status | MVP B: voice side built and partly tested; image agent and trigger **not built** |
 | 5 | Maintained by | Claude, for Nils |
 
@@ -55,12 +55,12 @@ Nils asks in **live voice mode** (desktop app, Mac), hands-free: no typing, no p
 | Line # | Step | Who | Where | Status |
 |---|---|---|---|---|
 | 1 | Nils says "look at the whiteboard" | Nils | Voice, Mac | ✅ |
-| 2 | Voice agent reads `instructions.md` (via settings one-liner), lists `/Whiteboard`, takes highest request number + 1 | Voice agent | Dropbox | ✅ tested |
-| 3 | Voice agent creates `request-NNNN.txt` | Voice agent | Dropbox | ✅ tested |
-| 4 | **Gap:** a new request file starts the image agent | Mac watcher | Mac | ❌ not built |
-| 5 | Image agent takes a fresh photo, runs "describe latest whiteboard image" | Image agent | Mac | ❌ not built |
-| 6 | Image agent runs "deliver whiteboard description": writes `description-NNNN.md` (same number) | Image agent | Dropbox | ❌ not built |
-| 7 | Voice agent counts aloud 1 to 10, then looks once for `description-NNNN.md` | Voice agent | Dropbox | ✅ tested (no-file case) |
+| 2 | Voice agent reads `instructions.md` (via settings one-liner), lists `Requests/`, takes highest request number + 1 | Voice agent | Dropbox | ✅ tested (old layout) |
+| 3 | Voice agent creates `Requests/request-NNNN.yaml` | Voice agent | Dropbox | `.txt` tested; `.yaml` not yet |
+| 4 | **Gap:** watcher notices the new request (Dropbox API long-poll) | Watcher (Python, no AI) | Mac, later Terox | ❌ not built |
+| 5 | Watcher takes the photo and uploads `Images/image-NNNN.jpg`, then starts the image agent to describe it | Watcher, then image agent | Mac | ❌ not built |
+| 6 | Image agent runs "deliver whiteboard description": writes `Descriptions/description-NNNN.md` (same number) | Image agent | Dropbox | ❌ not built |
+| 7 | Voice agent counts aloud 1 to 10, then looks once for `Descriptions/description-NNNN.md` | Voice agent | Dropbox | ✅ tested (no-file case) |
 | 8 | Found: voice agent answers from it. Missing: says "not ready", no retry, never uses an older description | Voice agent | Voice | ✅ no-file case tested |
 
 Design choices:
@@ -75,7 +75,7 @@ Design choices:
 
 ### Request file format
 
-Plain text, one `name: value` per line. Only `request` is required.
+`Requests/request-NNNN.yaml`: YAML, one `name: value` per line, `request` as a quoted string ("0003"). Only `request` is required.
 
 | Line # | Field | Allowed values | Default | Meaning |
 |---|---|---|---|---|
@@ -93,26 +93,26 @@ Plain text, one `name: value` per line. Only `request` is required.
 
 `/Whiteboard/instructions.md` in Dropbox is the single source of truth (trigger, procedure, fields, description format). One line in Nils's user settings points to it, so it works in every project. The Dropbox copy is authoritative; this document only summarizes it.
 
-### The gap (not solved, assumed solvable)
+### The gap: solved by design in ADR-0008 (not built)
 
-How a new request file starts the image agent, without a self-built MCP and without another connector.
+Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Capture", app folder access) over the desktop-app folder watcher: no desktop app to stall, same on Mac and Windows. The watcher (plain Python) also takes the photo, so only the description costs tokens. Options considered earlier:
 
 | Line # | Option | Verdict |
 |---|---|---|
-| 1 | **Mac watcher on the synced Dropbox folder** starts the image agent when `request-NNNN.txt` appears | **Preferred**: Dropbox only, no hosting, event-based |
+| 1 | Watcher on the synced Dropbox folder (needs the desktop app) | Replaced by the API watcher (ADR-0008) |
 | 2 | Same with Google Drive | Works in principle, less proven, adds a connector |
 | 3 | Gmail as trigger | Extra connector, slower, clunky; against constraint 2 |
 | 4 | Custom connector with a "request" tool (can also wait and return the text) | Cleanest, but needs hosting; against constraint 1 |
 | 5 | Cross-session messaging with a Claude Code session | Unproven from voice; plain text only |
 
-### Image agent (Mac), to build
+### Watcher and image agent, to build ([brief](handover/brief-build-mvp-b-watcher.md))
 
 | Line # | Piece | Note |
 |---|---|---|
-| 1 | Watcher script | Reacts to a new `request-*.txt` in the local Dropbox folder; skips requests that already have a description |
-| 2 | Camera | One photo on demand (new camera works; `imagesnap` or similar; the old timed loop is not needed) |
-| 3 | Describe step | Headless Claude Code with the photo and the request fields; subscription use and image input **to verify** |
-| 4 | Deliver step | Write `description-NNNN.md` last (never a half-written file); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary |
+| 1 | Setup script | One-time Dropbox authorization, stores the refresh token (BL-022) |
+| 2 | Watcher + camera | Long-polls `Requests/`; takes one photo on demand (new camera; `imagesnap` on Mac, `ffmpeg` on Windows later); uploads the image |
+| 3 | Describe step | Headless Claude Code with the photo and the request fields; subscription use and image input **to verify** (the only part that costs tokens) |
+| 4 | Deliver step | Write `Descriptions/description-NNNN.md` last (never a half-written file); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary |
 
 ### Open risks and tests
 
@@ -123,6 +123,7 @@ How a new request file starts the image agent, without a self-built MCP and with
 | 3 | Counting aloud is an imprecise timer | Compare against real time in a test |
 | 4 | Voice agent may not follow the settings one-liner every time | Test over several sessions |
 | 5 | "Always allow" may reset after updates | Re-check if approval prompts return |
+| 5a | Voice connector may not reach `Apps/Whiteboard-Capture/` after the move | Test in voice right after the move (BL-023) |
 | 6 | Headless Claude Code with images on the subscription | One-off run with a test photo |
 | 7 | Description quality for real brainstorming | Real board, real questions |
 | 8 | Full loop with a hand-written `description-0002.md` | Optional; Nils trusts the read works |
@@ -155,4 +156,4 @@ How a new request file starts the image agent, without a self-built MCP and with
 
 ## Next steps
 
-See [backlog.md](backlog.md): BL-016 to BL-020.
+See [backlog.md](backlog.md): BL-016 to BL-024.

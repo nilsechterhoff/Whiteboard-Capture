@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by ADR-0008"
 date: 2026-10-22
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -95,3 +95,4 @@ Tested on 2026-10-22 (voice side only): read a Dropbox file, created `request-00
 * **Not decided here:** where raw photos are kept (ADR-0004's rule "no images in Git" stays), and the camera (ADR-0001 named the A70; Nils now has a new camera that works).
 * Related: ADR-0006.
 * Accepted by Nils Echterhoff on 2026-10-22.
+* Superseded by ADR-0008 on 2026-10-22 (status change only; the decision text above is unchanged).
