@@ -8,15 +8,20 @@ import unittest
 import whiteboard_watcher as ww
 
 
+NOW = 1000000
+
+
 class FakeStore(object):
     """In-memory stand-in for the Dropbox client. Records every write in order."""
 
-    def __init__(self, requests=None):
+    def __init__(self, requests=None, age=0):
         self.files = {}
         self.events = []
         self.fail_upload_on = None  # substring; upload to a matching path raises
+        self.mtimes = {}
         for name, text in (requests or {}).items():
             self.files['/Requests/' + name] = text.encode('utf-8')
+            self.mtimes['/Requests/' + name] = NOW - age
 
     def list_names(self, folder):
         prefix = folder.rstrip('/') + '/'
@@ -25,6 +30,9 @@ class FakeStore(object):
 
     def exists(self, path):
         return path in self.files
+
+    def modified(self, path):
+        return self.mtimes.get(path, NOW)
 
     def read_text(self, path):
         return self.files[path].decode('utf-8')
@@ -116,7 +124,7 @@ class ProcessTests(unittest.TestCase):
     def run_one(self, store, camera=None, describer=None):
         camera = camera or FakeCamera()
         describer = describer or FakeDescriber()
-        handled = ww.process_pending(store, camera, describer)
+        handled = ww.process_pending(store, camera, describer, now=NOW)
         return handled, camera, describer
 
     def test_new_request_gets_image_then_description(self):
@@ -145,12 +153,41 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(handled, [])
         self.assertEqual(camera.calls, 0)
 
-    def test_request_with_image_but_no_description_is_not_taken_again(self):
+    def test_image_without_description_is_closed_as_interrupted(self):
         store = FakeStore({'request-0003.yaml': VALID})
         store.files['/Images/image-0003.jpg'] = b'old'
-        handled, camera, _ = self.run_one(store)
+        handled, camera, describer = self.run_one(store)
         self.assertEqual(handled, [])
         self.assertEqual(camera.calls, 0)
+        self.assertEqual(describer.calls, [])
+        desc = store.text('/Descriptions/description-0003.md')
+        self.assertTrue(desc.startswith('status: error\n'))
+        self.assertIn('interrupted before the description was written', desc)
+
+    def test_request_older_than_limit_is_expired_without_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE + 1)
+        handled, camera, describer = self.run_one(store)
+        self.assertEqual(handled, [])
+        self.assertEqual(camera.calls, 0)
+        self.assertEqual(describer.calls, [])
+        self.assertFalse(store.exists('/Images/image-0003.jpg'))
+        desc = store.text('/Descriptions/description-0003.md')
+        self.assertTrue(desc.startswith('status: error\n'))
+        self.assertIn('reason: expired', desc)
+
+    def test_request_at_the_limit_is_still_processed(self):
+        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE)
+        handled, _, _ = self.run_one(store)
+        self.assertEqual(handled, ['0003'])
+        self.assertIn('status: ok', store.text('/Descriptions/description-0003.md'))
+
+    def test_expired_request_does_not_block_a_fresh_one(self):
+        store = FakeStore({'request-0002.yaml': 'request: "0002"\n'}, age=500)
+        store.files['/Requests/request-0003.yaml'] = VALID.encode('utf-8')
+        store.mtimes['/Requests/request-0003.yaml'] = NOW - 5
+        handled, _, _ = self.run_one(store)
+        self.assertEqual(handled, ['0003'])
+        self.assertIn('reason: expired', store.text('/Descriptions/description-0002.md'))
 
     def test_camera_failure_writes_error_description_only(self):
         store = FakeStore({'request-0003.yaml': VALID})

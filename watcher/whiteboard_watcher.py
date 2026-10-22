@@ -9,6 +9,7 @@ import re
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
 FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]+(.+)$')
+MAX_REQUEST_AGE = 120  # seconds; older requests are closed as "expired", no photo
 ALLOWED = {
     'marker_color': ('black', 'red', 'green', 'blue'),
     'region_v': ('top', 'middle', 'bottom'),
@@ -120,8 +121,13 @@ def handle_request(store, camera, describer, name):
     publish(store, description_path(number), render_ok(number, fields, body).encode('utf-8'))
 
 
-def process_pending(store, camera, describer):
-    """Handle every request that has no image and no description yet, oldest first.
+def process_pending(store, camera, describer, now, max_age=MAX_REQUEST_AGE):
+    """Close every request that has no description yet, oldest first.
+
+    - description exists: nothing to do
+    - image exists, no description: the run was interrupted; close with an error
+    - request older than max_age (e.g. after a Mac sleep): close with "expired", no photo
+    - otherwise: take the photo and describe it
 
     An upload that fails (network) leaves no final file behind, so the request
     is simply tried again on the next run.
@@ -130,11 +136,16 @@ def process_pending(store, camera, describer):
     names = sorted(n for n in store.list_names('/Requests') if REQUEST_NAME.match(n))
     for name in names:
         number = REQUEST_NAME.match(name).group(1)
-        if store.exists(image_path(number)) or store.exists(description_path(number)):
+        if store.exists(description_path(number)):
             continue
         try:
-            handle_request(store, camera, describer, name)
+            if store.exists(image_path(number)):
+                fail(store, number, 'interrupted before the description was written')
+            elif now - store.modified(request_path(name)) > max_age:
+                fail(store, number, 'expired')
+            else:
+                handle_request(store, camera, describer, name)
+                handled.append(number)
         except OSError:
             continue
-        handled.append(number)
     return handled
