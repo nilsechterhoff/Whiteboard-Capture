@@ -19,9 +19,12 @@ Tasks and open ideas (not decisions; decisions go to `docs/decisions/` per STD-0
 | 13 | BL-013 | Remove the earlier test copies in `~/Claude/` | Claude | Done (2026-10-12) |
 | 14 | BL-014 | Move the repo to `~/Developer/NE_Whiteboard Capture/` (launchd cannot read `~/Documents`) and reinstall the service | Nils + Claude Code | Open |
 | 15 | BL-015 | Review and accept ADR-0005 (20 s interval) | Nils | Done (2026-10-12) |
-| 16 | BL-016 | **MVP B:** build the image agent: one photo, one description, one `description-NNNN.md` (start with a manual run on `request-0002.txt`); verify headless Claude Code with images on the subscription | Claude Code + Nils | Open (main path) |
-| 17 | BL-017 | **MVP B:** build the Mac watcher: new `request-*.txt` in the local Dropbox folder starts the image agent (the "gap") | Claude Code + Nils | Open (main path) |
+| 16 | BL-016 | **MVP B:** build the describe step: headless Claude Code takes the photo `Images/image-NNNN.jpg` and writes `Descriptions/description-NNNN.md`; verify image input and subscription use first | Claude Code + Nils | Open (main path, [brief](handover/brief-build-mvp-b-watcher.md)) |
+| 17 | BL-017 | **MVP B:** build the watcher (Python, Dropbox API long-poll, takes the photo, uploads it, starts the describe step, writes the description last); background service on the Mac | Claude Code + Nils | Open (main path, [brief](handover/brief-build-mvp-b-watcher.md)) |
 | 18 | BL-018 | **MVP B:** measure request-to-description delay end to end; tune the 10 s count | Nils + Claude | Open |
 | 19 | BL-019 | Review and accept ADR-0006 and ADR-0007; on acceptance mark ADR-0002, ADR-0003, ADR-0005 as superseded by ADR-0007 | Nils | Done (2026-10-22) |
 | 20 | BL-020 | Decide the camera (ADR-0001 names the A70; new camera works) and where raw photos are kept → ADR | Nils + Claude | Open |
 | 21 | BL-021 | MVP B: `mode: diff` (compare with previous request) | – | Idea (placeholder in request format) |
+| 22 | BL-022 | **MVP B:** setup script: Dropbox OAuth with refresh token (app "Whiteboard-Capture", app folder); secrets stay out of chat and Git | Claude Code + Nils | Open |
+| 23 | BL-023 | **MVP B:** after the first authorization, move `/Whiteboard` into `/Apps/Whiteboard-Capture/`, update `instructions.md` paths, test in voice that the connector reaches the new folder | Nils + Claude | Open |
+| 24 | BL-024 | **MVP B:** Windows port to "Terox" (`ffmpeg` camera, Task Scheduler); design for it now, build later | – | Idea |

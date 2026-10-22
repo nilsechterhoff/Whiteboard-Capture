@@ -6,14 +6,15 @@ Lets Claude see a **120 × 90 cm whiteboard** so Nils can brainstorm with it, ha
 
 Voice mode cannot view images (tested), so a separate **image agent** turns a fresh photo into text and voice mode reads the text. Request and answer travel as files in a Dropbox folder, on demand, with no self-built MCP.
 
-**Flow:** Nils says "look at the whiteboard" → voice agent writes `request-NNNN.txt` → Mac watcher starts the image agent → `description-NNNN.md` → voice agent reads it and answers.
+**Flow:** Nils says "look at the whiteboard" → voice agent writes `Requests/request-NNNN.yaml` → watcher (Python, Dropbox API) takes the photo → `Images/image-NNNN.jpg` → image agent describes it → `Descriptions/description-NNNN.md` → voice agent reads it and answers.
 
 | Line # | Item | Where |
 |---|---|---|
 | 1 | Concept, flow, request fields, risks | [project/mvp-alternatives.md](project/mvp-alternatives.md) |
-| 2 | Decisions | ADR-0006, ADR-0007 (`accepted` 2026-10-22) |
+| 2 | Decisions | ADR-0006, ADR-0008 (`accepted` 2026-10-22); ADR-0007 superseded by ADR-0008 |
+| 2a | Build brief for Claude Code | [project/handover/brief-build-mvp-b-watcher.md](project/handover/brief-build-mvp-b-watcher.md) |
 | 3 | Rules for the voice agent | `Whiteboard/instructions.md` in Dropbox (source of truth) |
-| 4 | Status | Voice side built and partly tested; image agent and watcher **not built** ([backlog](project/backlog.md) BL-016, BL-017) |
+| 4 | Status | Voice side built and partly tested; image agent and watcher **not built** ([backlog](project/backlog.md) BL-016, BL-017, BL-022) |
 
 ## Earlier pipeline (timed capture, parked)
 
@@ -30,7 +31,7 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 3 | ADRs 0001–0003 | `accepted` (2026-10-12); 0002 and 0003 superseded by ADR-0007 (2026-10-22) |
 | 4 | ADR-0004 (Nextcloud storage, 30 s) | `accepted` (2026-10-12) |
 | 5 | ADR-0005 (20 s interval) | `accepted` (2026-10-12); superseded by ADR-0007 (2026-10-22) |
-| 6 | ADR-0006, ADR-0007 (MVP B) | `accepted` (2026-10-22) |
+| 6 | ADR-0006, ADR-0008 (MVP B) | `accepted` (2026-10-22); ADR-0007 superseded by ADR-0008 |
 | 7 | Next steps | [project/backlog.md](project/backlog.md) |
 
 ## Where things live
@@ -111,4 +112,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
 | 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | superseded by ADR-0007 |
 | 6 | 0006 | [Describe the board with an image agent and hand text to voice mode](docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) | accepted |
-| 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | accepted |
+| 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | superseded by ADR-0008 |
+| 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
