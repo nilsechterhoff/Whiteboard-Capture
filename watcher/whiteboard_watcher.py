@@ -28,6 +28,11 @@ class CameraError(Exception):
     pass
 
 
+class DarkFrameError(CameraError):
+    """Near-black frame (closed lid, or not warmed up yet). The camera is retried once."""
+    pass
+
+
 class DescribeError(Exception):
     pass
 
@@ -139,6 +144,24 @@ def fail(store, watch, number, reasons):
     watch.finish('error', upload_s)
 
 
+def capture_once_or_retry_dark(cameras, watch, index):
+    """One photo from `index`. A dark frame is retried once (the retry warms up again).
+    Returns (photo, None) or (None, error). Every try goes to the timing block.
+    """
+    error = None
+    for attempt in (1, 2):
+        try:
+            return cameras.capture(index), None
+        except CameraError as err:
+            info = dict(getattr(cameras, 'last', {}))
+            watch.camera_try(index, err if attempt == 1 else 'retry: %s' % err,
+                             info.get('photo_s'), info.get('brightness'))
+            error = err
+            if not isinstance(err, DarkFrameError):
+                break
+    return None, error
+
+
 def handle_request(store, cameras, describer, memory, watch, settings, name):
     """Try the cameras one at a time (each at most once). Write the image and description
     of the first camera that shows a whiteboard, or one error description listing every try.
@@ -161,12 +184,9 @@ def handle_request(store, cameras, describer, memory, watch, settings, name):
     watch.camera_list(watch.clock() - started)
     reasons = []
     for index in camera_order([i for i, _ in devices], memory.index()):
-        try:
-            photo = cameras.capture(index)
-        except CameraError as err:
-            info = dict(getattr(cameras, 'last', {}))
-            watch.camera_try(index, err, info.get('photo_s'), info.get('brightness'))
-            reasons.append('camera %d: %s' % (index, err))
+        photo, error = capture_once_or_retry_dark(cameras, watch, index)
+        if photo is None:
+            reasons.append('camera %d: %s' % (index, error))
             continue
         info = dict(getattr(cameras, 'last', {}))
         started = watch.clock()

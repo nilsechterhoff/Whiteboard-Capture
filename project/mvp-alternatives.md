@@ -133,7 +133,7 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 | Line # | Piece | Note |
 |---|---|---|
 | 1 | Setup script | One-time Dropbox authorization, stores the refresh token (BL-022) |
-| 2 | Watcher + camera | Polls `Requests/`; camera by index with ffmpeg avfoundation (no serial or ID lookup); last working index as a hint; each camera tried at most once per request; rotate 180° (config); near-black frames rejected; uploads only the image of the camera that shows the whiteboard |
+| 2 | Watcher + camera | Polls `Requests/`; camera by index with ffmpeg avfoundation (no serial or ID lookup); `camera_name` in config (now `Logitech`, so FaceTime and iPhone are skipped; empty means all cameras); warm-up: first 1.5 s discarded (3 frames at 2 fps), photo is the 4th frame; a dark frame is retried once after the warm-up, then the next camera; last working index as a hint; each camera at most once per request after its retry; rotate 180° (config); uploads only the image of the camera that shows the whiteboard |
 | 3 | Describe step | Headless Claude Code (`claude -p`, Sonnet, Read only) with the photo and the request fields. First line `whiteboard: yes` or `whiteboard: no`; `no` moves on to the next camera. Refuses to run if an API key is set |
 | 4 | Deliver step | Write `Descriptions/description-NNNN.md` last (temporary name, then rename); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary. If every camera fails: one error file with one line per camera. The `whiteboard:` line is not in the published file |
 

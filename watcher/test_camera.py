@@ -11,7 +11,7 @@ import testroot
 import unittest
 
 import camera as cam
-from whiteboard_watcher import CameraError
+from whiteboard_watcher import CameraError, DarkFrameError
 
 LIST_TEXT = b"""[AVFoundation indev @ 0x1] AVFoundation video devices:
 [AVFoundation indev @ 0x1] [0] Logitech Webcam C930e
@@ -100,34 +100,41 @@ class CaptureTests(unittest.TestCase):
         shutil.rmtree(self.folder)
 
     def test_capture_returns_last_frame_and_cleans_up(self):
-        fake = FakeFfmpeg(brightness={'frame-1-3.jpg': 120.0})
+        fake = FakeFfmpeg(brightness={'frame-1-4.jpg': 120.0})
         data = cam.capture(1, self.folder, run=fake)
-        self.assertEqual(data, b'jpeg-3')
+        self.assertEqual(data, b'jpeg-4')
         self.assertEqual(os.listdir(self.folder), [])
 
     def test_command_uses_index_and_rotation(self):
-        fake = FakeFfmpeg(brightness={'frame-1-3.jpg': 120.0})
+        fake = FakeFfmpeg(brightness={'frame-1-4.jpg': 120.0})
         cam.capture(1, self.folder, rotate=True, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertIn('1:none', capture_cmd)
-        self.assertIn('hflip,vflip,fps=1', capture_cmd)
+        self.assertIn('hflip,vflip,fps=2', capture_cmd)
 
     def test_rotation_off_has_no_flip(self):
-        fake = FakeFfmpeg(brightness={'frame-0-3.jpg': 120.0})
+        fake = FakeFfmpeg(brightness={'frame-0-4.jpg': 120.0})
         cam.capture(0, self.folder, rotate=False, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
-        self.assertIn('fps=1', capture_cmd)
+        self.assertIn('fps=2', capture_cmd)
         self.assertNotIn('hflip', capture_cmd)
 
+    def test_warmup_discards_the_first_frames_and_keeps_the_fourth(self):
+        self.assertEqual(cam.WARMUP_FRAMES, 3)
+        self.assertEqual(cam.FRAMES, 4)
+        fake = FakeFfmpeg(brightness={'frame-0-4.jpg': 90.0})
+        self.assertEqual(cam.capture(0, self.folder, run=fake), b'jpeg-4')
+        self.assertEqual(os.listdir(self.folder), [])
+
     def test_dark_frame_is_rejected(self):
-        fake = FakeFfmpeg(brightness={'frame-2-3.jpg': 1.4})
-        with self.assertRaises(CameraError) as ctx:
+        fake = FakeFfmpeg(brightness={'frame-2-4.jpg': 1.4})
+        with self.assertRaises(DarkFrameError) as ctx:
             cam.capture(2, self.folder, run=fake)
         self.assertIn('dark, closed lid', str(ctx.exception))
         self.assertEqual(os.listdir(self.folder), [])
 
     def test_threshold_is_configurable(self):
-        fake = FakeFfmpeg(brightness={'frame-0-3.jpg': 30.0})
+        fake = FakeFfmpeg(brightness={'frame-0-4.jpg': 30.0})
         with self.assertRaises(CameraError):
             cam.capture(0, self.folder, dark_below=40, run=fake)
 
@@ -147,9 +154,9 @@ class CaptureTests(unittest.TestCase):
             cam.capture(0, self.folder, run=FakeFfmpeg(brightness_text='nothing here'))
 
     def test_cameras_class_passes_settings_through(self):
-        fake = FakeFfmpeg(brightness={'frame-4-3.jpg': 90.0})
+        fake = FakeFfmpeg(brightness={'frame-4-4.jpg': 90.0})
         cameras = cam.Cameras(self.folder, 'c930', rotate=False, dark_below=10, run=fake)
-        self.assertEqual(cameras.capture(4), b'jpeg-3')
+        self.assertEqual(cameras.capture(4), b'jpeg-4')
         self.assertEqual(cameras.list(), [(0, 'Logitech Webcam C930e'),
                                           (1, 'Logitech Webcam C930e')])
 

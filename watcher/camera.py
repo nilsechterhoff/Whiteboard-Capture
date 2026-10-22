@@ -11,7 +11,7 @@ import re
 import subprocess
 import time
 
-from whiteboard_watcher import CameraError
+from whiteboard_watcher import CameraError, DarkFrameError
 
 FFMPEG = 'ffmpeg'
 LIST_TIMEOUT = 15
@@ -19,7 +19,9 @@ CAPTURE_TIMEOUT = 25
 BRIGHTNESS_TIMEOUT = 10
 FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
 SIZE = '1920x1080'
-FRAMES = 3          # keep the last of a few frames: the first ones are often dark
+FPS = 2             # frames per second while warming up
+WARMUP_FRAMES = 3   # first 1.5 s at 2 fps: discarded (exposure settles, black first frames)
+FRAMES = WARMUP_FRAMES + 1  # the next frame (about 2 s after start) is the photo
 DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
 DEVICE = re.compile(r'\[(\d+)\] (.+)$')
 NOT_CAMERAS = ('Capture screen',)  # screen recording is not a camera
@@ -83,7 +85,7 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
     timing = {} if timing is None else timing
     pattern = os.path.join(folder, 'frame-%d-%%d.jpg' % index)
     filters = ['hflip', 'vflip'] if rotate else []
-    filters.append('fps=1')
+    filters.append('fps=%d' % FPS)
     cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
            '-framerate', FRAMERATE, '-video_size', SIZE,
            '-i', '%d:none' % index, '-vf', ','.join(filters),
@@ -105,7 +107,7 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
         timing['brightness_s'] = time.time() - started
         timing['brightness'] = brightness
         if brightness < dark_below:
-            raise CameraError('dark, closed lid (mean %d)' % brightness)
+            raise DarkFrameError('dark, closed lid (mean %d)' % brightness)
         with open(last, 'rb') as handle:
             return handle.read()
     finally:

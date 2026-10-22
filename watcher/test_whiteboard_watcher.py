@@ -74,6 +74,10 @@ class FakeCameras(object):
         self.captures.append(index)
         self.last = {'photo_s': 0.5, 'brightness': 120.0, 'brightness_s': 0.1}
         result = self.plan.get(index, b'photo-%d' % index)
+        if isinstance(result, list):
+            result = result.pop(0)  # a sequence of results: one per call
+        if isinstance(result, str) and result.startswith('DARK:'):
+            raise ww.DarkFrameError(result[5:])
         if isinstance(result, str):
             raise ww.CameraError(result)
         return result
@@ -452,6 +456,38 @@ class ProcessTests(unittest.TestCase):
         store = FakeStore({'request-0003.yaml': VALID}, age=7)
         self.run_one(store)
         self.assertEqual(self.watch.rows[0]['detect_s'], '7.00')
+
+    def test_dark_frame_is_retried_once_and_the_retry_is_used(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0], plan={0: ['DARK:mean 1', b'photo-retry']})
+        handled, cameras, describer, _ = self.run_one(store, cameras)
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(cameras.captures, [0, 0])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-retry')
+        self.assertEqual(self.watch.rows[0]['outcome'], 'ok')
+        self.assertIn('0:mean 1', self.watch.rows[0]['tries'])
+        self.assertIn('0:ok', self.watch.rows[0]['tries'])
+
+    def test_dark_twice_moves_on_to_the_next_camera(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: ['DARK:mean 1', 'DARK:mean 2']})
+        _, cameras, _, _ = self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 0, 1])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
+
+    def test_dark_on_every_try_gives_error_with_the_last_reason(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0], plan={0: ['DARK:dark, closed lid (mean 1)',
+                                             'DARK:dark, closed lid (mean 2)']})
+        self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 0])
+        self.assertIn('reason: camera 0: dark, closed lid (mean 2)', self.description(store))
+
+    def test_other_camera_error_is_not_retried(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: 'no frame'})
+        _, cameras, _, _ = self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 1])
 
 
 if __name__ == '__main__':
