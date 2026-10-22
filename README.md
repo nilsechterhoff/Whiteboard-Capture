@@ -41,6 +41,7 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 1 | Repository on the Mac | `~/Developer/NE_Whiteboard Capture/` |
 | 2 | Captured images | `~/Library/CloudStorage/Nextcloud-cloud.echterhoff.dk-nilsechterhoff/Services/Whiteboard Capture/` |
 | 3 | Service log | `~/Library/Logs/whiteboard-capture.log` |
+| 4 | Lessons and camera facts (old camera branch) | [project/lessons-and-camera-facts.md](project/lessons-and-camera-facts.md) |
 
 Images are **not** in Git (ADR-0004). The repo is **not** in `~/Documents`: macOS blocks the launchd service from reading files there.
 
