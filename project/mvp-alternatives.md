@@ -5,7 +5,7 @@
 | 1 | Created | 2026-10-22 12:06 (Europe/Copenhagen) |
 | 2 | Last updated | 2026-10-22 14:40 (ADR-0008: API watcher takes the photo, YAML, subfolders) |
 | 3 | **Current main path** | **MVP B** (Dropbox request/description loop), see [ADR-0006](../docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) and [ADR-0008](../docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) (both `accepted`, 2026-10-22; ADR-0007 superseded by ADR-0008) |
-| 4 | Status | MVP B: voice side built and partly tested; image agent and trigger **not built** |
+| 4 | Status | MVP B: voice side built and tested; watcher with camera, describe step and Dropbox store built; one end-to-end run done (2026-10-22). Background service not installed yet |
 | 5 | Maintained by | Claude, for Nils |
 
 ## Requirement (highest priority)
@@ -57,9 +57,9 @@ Nils asks in **live voice mode** (desktop app, Mac), hands-free: no typing, no p
 | 1 | Nils says "look at the whiteboard" | Nils | Voice, Mac | ✅ |
 | 2 | Voice agent reads `instructions.md` (via settings one-liner), lists `Requests/`, takes highest request number + 1 | Voice agent | Dropbox | ✅ tested (old layout) |
 | 3 | Voice agent creates `Requests/request-NNNN.yaml` | Voice agent | Dropbox | `.txt` tested; `.yaml` not yet |
-| 4 | **Gap:** watcher notices the new request (Dropbox API long-poll) | Watcher (Python, no AI) | Mac, later Terox | ❌ not built |
-| 5 | Watcher takes the photo and uploads `Images/image-NNNN.jpg`, then starts the image agent to describe it | Watcher, then image agent | Mac | ❌ not built |
-| 6 | Image agent runs "deliver whiteboard description": writes `Descriptions/description-NNNN.md` (same number) | Image agent | Dropbox | ❌ not built |
+| 4 | Watcher notices the new request (polls `Requests/` every 1 s; long-poll not built yet) | Watcher (Python, no AI) | Mac, later Terox | ✅ built, run once |
+| 5 | Watcher takes the photo and uploads `Images/image-NNNN.jpg`, then starts the describe step (`claude -p`, Sonnet) | Watcher, then image agent | Mac | ✅ built, run once |
+| 6 | Describe step writes `Descriptions/description-NNNN.md` (same number), last | Watcher | Dropbox | ✅ built, run once |
 | 7 | Voice agent counts aloud 1 to 10, then looks once for `Descriptions/description-NNNN.md` | Voice agent | Dropbox | ✅ tested (no-file case) |
 | 8 | Found: voice agent answers from it. Missing: says "not ready", no retry, never uses an older description | Voice agent | Voice | ✅ no-file case tested |
 
@@ -84,14 +84,37 @@ Design choices:
 | 3 | `region_v` | top, middle, bottom | whole height | Vertical focus |
 | 4 | `region_h` | left, center, right | whole width | Horizontal focus; combines with `region_v` (3 × 3 grid) or stands alone |
 | 5 | `mode` | snapshot, diff | snapshot | snapshot: full current state. diff: only what is new since the last request |
+| 6 | `model` | short names from the config file (now: haiku, sonnet, opus) | `default_model` in the config (now: haiku) | Model for the describe step. Any other value: error description, no photo |
 
 - Nils speaks casually; the voice agent translates to these exact values.
 - **`diff` is a placeholder:** the image agent cannot compare photos yet (it would need the previous photo or description). Do not rely on it.
 - Request file = a container: later fields (for example a free question) need no redesign.
+- Short names map to model IDs in the config file (`models`), not in the code. A new model is a one-line edit there.
+
+### Description format
+
+`Descriptions/description-NNNN.md`, written last. Order:
+
+1. First line `status: ok` or `status: error` (the voice agent checks this line).
+2. `request: "NNNN"` and `fields: ...` (including `model=...`), or for an error one `reason:` line per camera or cause.
+3. Body: text by region, shapes and arrows, short summary (ok only). The `whiteboard: yes/no` line from the describe step is not in the file.
+4. A blank line and the marker line `--- timing, do not read aloud ---`, then a short timing block (machine, model, detect, camera list, each camera try, image upload, total before the description upload).
+
+**Marker rule:** everything below the marker line is for the logs, not for reading aloud. `instructions.md` in Dropbox tells the voice agent to ignore it. The final upload of the description is not in the block. It goes only to the local CSV log.
+
+### Stopwatch and voice check window
+
+| Line # | Item | Value |
+|---|---|---|
+| 1 | Timing log (one row per request) | `~/Library/Logs/whiteboard-watcher-timings.csv`. Columns: when, request, machine, model, outcome, detect_s, camera_list_s, tries (`index:result:photo_s:brightness:describe_s`), image_upload_s, describe_upload_s, total_s. No whiteboard content |
+| 2 | Voice check window | First check at 10 s after the request, then every 5 s until 40 s |
+| 3 | `instructions.md` (Dropbox) | Updated by Claude in the chat, not by the watcher and not by Nils's script. It holds the marker rule and the `model` field |
 
 ### Where the rules live
 
-`/Whiteboard/instructions.md` in Dropbox is the single source of truth (trigger, procedure, fields, description format). One line in Nils's user settings points to it, so it works in every project. The Dropbox copy is authoritative; this document only summarizes it.
+`/Whiteboard/instructions.md` in Dropbox is the single source of truth (trigger, procedure, fields, description format). One line in Nils's user settings points to it, so it works in every project.
+
+**Deviation from the brief (decided by Nils, 2026-10-22):** `instructions.md` stays at `/Whiteboard/`, because the user settings point there. Its paths now point into `/Apps/Whiteboard-Capture/`, where `Requests/`, `Images/` and `Descriptions/` now are. The Dropbox copy is authoritative; this document only summarizes it.
 
 ### The gap: solved by design in ADR-0008 (not built)
 
@@ -105,14 +128,35 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 | 4 | Custom connector with a "request" tool (can also wait and return the text) | Cleanest, but needs hosting; against constraint 1 |
 | 5 | Cross-session messaging with a Claude Code session | Unproven from voice; plain text only |
 
-### Watcher and image agent, to build ([brief](handover/brief-build-mvp-b-watcher.md))
+### Watcher and image agent (built 2026-10-22, [brief](handover/brief-build-mvp-b-watcher.md))
 
 | Line # | Piece | Note |
 |---|---|---|
 | 1 | Setup script | One-time Dropbox authorization, stores the refresh token (BL-022) |
-| 2 | Watcher + camera | Long-polls `Requests/`; takes one photo on demand (new camera; `imagesnap` on Mac, `ffmpeg` on Windows later); uploads the image |
-| 3 | Describe step | Headless Claude Code with the photo and the request fields; subscription use and image input **to verify** (the only part that costs tokens) |
-| 4 | Deliver step | Write `Descriptions/description-NNNN.md` last (never a half-written file); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary |
+| 2 | Watcher + camera | Polls `Requests/`; camera by index with ffmpeg avfoundation (no serial or ID lookup); last working index as a hint; each camera tried at most once per request; rotate 180° (config); near-black frames rejected; uploads only the image of the camera that shows the whiteboard |
+| 3 | Describe step | Headless Claude Code (`claude -p`, Sonnet, Read only) with the photo and the request fields. First line `whiteboard: yes` or `whiteboard: no`; `no` moves on to the next camera. Refuses to run if an API key is set |
+| 4 | Deliver step | Write `Descriptions/description-NNNN.md` last (temporary name, then rename); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary. If every camera fails: one error file with one line per camera. The `whiteboard:` line is not in the published file |
+
+### Measured (2026-10-22, first end-to-end run, request-0003)
+
+| Line # | Step | Time |
+|---|---|---|
+| 1 | Dropbox reads (list, exists, modified, read request) | 4.1 s |
+| 2 | Camera list (ffmpeg, index only) | 0.35 s |
+| 3 | Camera try, dark frame or wrong camera (not described) | 6.3 s |
+| 4 | Camera try, photo taken (rotated, brightness ok) | 4.9 s |
+| 5 | Describe step (Sonnet, `claude -p`) | 11.9 s |
+| 6 | Uploads and renames of image and description | 5.8 s |
+| 7 | Pass total (watcher log) | 32.1 s |
+| 8 | Request created to description (Dropbox server time) | about 34 s |
+
+**Worst case, request-0004 (all five cameras tried, room dark):** 46.5 s in total. One camera hit the 25 s limit. Each dark try costs about 5 to 6 s. The request was closed with one error description, no describe call.
+
+**Above the 10 s target.** The describe step and the uploads are the largest parts. Tuning is open (BL-018); the voice side waits 10 s and then looks once.
+
+**Model choice (describe, same photo, 2 runs each):** Sonnet 10.8 s per run; Haiku 10.6 s and 14.9 s. Both read the layout and the same unclear words. Sonnet chosen by the rule "fastest that reads correctly". Haiku is about 30 times cheaper per the CLI estimate ($0.002 to $0.005 against $0.046 to $0.076 per call).
+
+**Camera findings:** the index of the whiteboard camera changed between runs with no replug. The FaceTime camera hit the 25 s hard limit. Dark frames (closed lid) are rejected by brightness (threshold 20).
 
 ### Open risks and tests
 
