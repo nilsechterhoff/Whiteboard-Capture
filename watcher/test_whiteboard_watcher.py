@@ -1,4 +1,4 @@
-"""Tests for the MVP B watcher core, with fake Dropbox store, camera and describer.
+"""Tests for the MVP B watcher core, with fakes for the store, cameras, describer and memory.
 
 Run: cd watcher && python3 -m unittest -v test_whiteboard_watcher
 """
@@ -7,12 +7,13 @@ import unittest
 
 import whiteboard_watcher as ww
 
-
 NOW = 1000000
+VALID = 'request: "0003"\n'
+YES = 'whiteboard: yes\n## Text\nHELLO'
 
 
 class FakeStore(object):
-    """In-memory stand-in for the Dropbox client. Records every write in order."""
+    """In-memory stand-in for the Dropbox store. Records every write in order."""
 
     def __init__(self, requests=None, age=0):
         self.files = {}
@@ -51,32 +52,55 @@ class FakeStore(object):
         return self.files[path].decode('utf-8')
 
 
-class FakeCamera(object):
-    def __init__(self, fail=False):
-        self.fail = fail
-        self.calls = 0
+class FakeCameras(object):
+    """Camera list and per-index behaviour. `plan[index]` is a photo, or an error message."""
 
-    def take_photo(self):
-        self.calls += 1
-        if self.fail:
-            raise ww.CameraError('no frame within 20 s')
-        return b'fake-jpeg'
+    def __init__(self, indices=(0,), plan=None, list_error=None):
+        self.indices = list(indices)
+        self.plan = plan or {}
+        self.list_error = list_error
+        self.captures = []
+
+    def list(self):
+        if self.list_error:
+            raise ww.CameraError(self.list_error)
+        return [(i, 'cam %d' % i) for i in self.indices]
+
+    def capture(self, index):
+        self.captures.append(index)
+        result = self.plan.get(index, b'photo-%d' % index)
+        if isinstance(result, str):
+            raise ww.CameraError(result)
+        return result
 
 
 class FakeDescriber(object):
-    def __init__(self, text='## Text\nHELLO', fail=False):
-        self.text = text
-        self.fail = fail
+    """Answers per photo. `answers[photo]` is the text, or an error message to raise."""
+
+    def __init__(self, answers=None, default=YES):
+        self.answers = answers or {}
+        self.default = default
         self.calls = []
 
     def describe(self, photo, fields):
-        self.calls.append(dict(fields))
-        if self.fail:
-            raise ww.DescribeError('claude timed out after 120 s')
-        return self.text
+        self.calls.append(photo)
+        answer = self.answers.get(photo, self.default)
+        if answer.startswith('ERR:'):
+            raise ww.DescribeError(answer[4:])
+        return answer
 
 
-VALID = 'request: "0003"\n'
+class FakeMemory(object):
+    def __init__(self, index=None):
+        self.last = index
+        self.remembered = []
+
+    def index(self):
+        return self.last
+
+    def remember(self, index):
+        self.remembered.append(index)
+        self.last = index
 
 
 class ParseRequestTests(unittest.TestCase):
@@ -119,113 +143,156 @@ class ParseRequestTests(unittest.TestCase):
                 ww.parse_request(VALID + bad, '0003')
 
 
+class SplitAnswerTests(unittest.TestCase):
+
+    def test_yes_strips_the_line(self):
+        self.assertEqual(ww.split_answer('whiteboard: yes\nbody\n'), (True, 'body'))
+
+    def test_no(self):
+        self.assertEqual(ww.split_answer('whiteboard: no'), (False, ''))
+
+    def test_case_and_spaces_tolerated(self):
+        self.assertEqual(ww.split_answer('  Whiteboard: YES \nx')[0], True)
+
+    def test_missing_line_is_an_error(self):
+        with self.assertRaises(ww.DescribeError):
+            ww.split_answer('This is a whiteboard with notes.')
+
+    def test_empty_answer_is_an_error(self):
+        with self.assertRaises(ww.DescribeError):
+            ww.split_answer('   \n')
+
+
+class CameraOrderTests(unittest.TestCase):
+
+    def test_remembered_first_then_listing_order(self):
+        self.assertEqual(ww.camera_order([0, 1, 2], 1), [1, 0, 2])
+
+    def test_no_memory_keeps_listing_order(self):
+        self.assertEqual(ww.camera_order([0, 1], None), [0, 1])
+
+    def test_remembered_but_not_listed_is_ignored(self):
+        self.assertEqual(ww.camera_order([0, 2], 5), [0, 2])
+
+    def test_each_index_once(self):
+        order = ww.camera_order([0, 1, 2], 2)
+        self.assertEqual(sorted(order), [0, 1, 2])
+
+
 class ProcessTests(unittest.TestCase):
 
-    def run_one(self, store, camera=None, describer=None):
-        camera = camera or FakeCamera()
+    def run_one(self, store, cameras=None, describer=None, memory=None):
+        cameras = cameras or FakeCameras()
         describer = describer or FakeDescriber()
-        handled = ww.process_pending(store, camera, describer, now=NOW)
-        return handled, camera, describer
+        memory = memory or FakeMemory()
+        handled = ww.process_pending(store, cameras, describer, memory, now=NOW)
+        return handled, cameras, describer, memory
 
-    def test_new_request_gets_image_then_description(self):
+    def test_remembered_camera_works_with_exactly_one_photo(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        handled, camera, describer = self.run_one(store)
+        handled, cameras, describer, memory = self.run_one(
+            store, FakeCameras([0, 1]), memory=FakeMemory(1))
         self.assertEqual(handled, ['0003'])
-        self.assertEqual(camera.calls, 1)
-        self.assertEqual(store.files['/Images/image-0003.jpg'], b'fake-jpeg')
+        self.assertEqual(cameras.captures, [1])
+        self.assertEqual(len(describer.calls), 1)
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
         desc = store.text('/Descriptions/description-0003.md')
-        self.assertIn('status: ok', desc)
-        self.assertIn('request: "0003"', desc)
+        self.assertTrue(desc.startswith('status: ok\n'))
+        self.assertNotIn('whiteboard:', desc)
         self.assertIn('HELLO', desc)
-        self.assertEqual(describer.calls, [{'request': '0003'}])
+        self.assertEqual(memory.remembered, [1])
 
-    def test_description_is_written_last(self):
+    def test_description_is_written_after_image(self):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store)
         moved = [dst for kind, dst in store.events if kind == 'move']
         self.assertEqual(moved, ['/Images/image-0003.jpg',
                                  '/Descriptions/description-0003.md'])
 
-    def test_already_described_request_is_skipped(self):
+    def test_remembered_wrong_then_second_camera_works(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        store.files['/Descriptions/description-0003.md'] = b'status: ok\n'
-        handled, camera, _ = self.run_one(store)
-        self.assertEqual(handled, [])
-        self.assertEqual(camera.calls, 0)
+        cameras = FakeCameras([0, 1], plan={})
+        describer = FakeDescriber(answers={b'photo-1': 'whiteboard: no\nroom'})
+        handled, cameras, _, memory = self.run_one(
+            store, cameras, describer, FakeMemory(1))
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(cameras.captures, [1, 0])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-0')
+        self.assertEqual(memory.remembered, [0])
 
-    def test_image_without_description_is_closed_as_interrupted(self):
+    def test_dark_camera_is_skipped_and_the_next_one_used(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        store.files['/Images/image-0003.jpg'] = b'old'
-        handled, camera, describer = self.run_one(store)
-        self.assertEqual(handled, [])
-        self.assertEqual(camera.calls, 0)
-        self.assertEqual(describer.calls, [])
-        desc = store.text('/Descriptions/description-0003.md')
-        self.assertTrue(desc.startswith('status: error\n'))
-        self.assertIn('interrupted before the description was written', desc)
+        cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)'})
+        handled, cameras, describer, _ = self.run_one(store, cameras)
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(cameras.captures, [0, 1])
+        self.assertEqual(describer.calls, [b'photo-1'])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
 
-    def test_request_older_than_limit_is_expired_without_photo(self):
-        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE + 1)
-        handled, camera, describer = self.run_one(store)
-        self.assertEqual(handled, [])
-        self.assertEqual(camera.calls, 0)
-        self.assertEqual(describer.calls, [])
+    def test_all_cameras_fail_writes_one_error_with_a_line_per_camera(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)', 1: 'no frame'})
+        describer = FakeDescriber(default='whiteboard: no\nroom')
+        self.run_one(store, cameras, describer)
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
         desc = store.text('/Descriptions/description-0003.md')
         self.assertTrue(desc.startswith('status: error\n'))
-        self.assertIn('reason: expired', desc)
+        self.assertIn('reason: camera 0: dark, closed lid (mean 2)', desc)
+        self.assertIn('reason: camera 1: no frame', desc)
+        self.assertEqual(sum(1 for p in store.files if p.startswith('/Descriptions/')), 1)
 
-    def test_request_at_the_limit_is_still_processed(self):
-        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE)
-        handled, _, _ = self.run_one(store)
-        self.assertEqual(handled, ['0003'])
-        self.assertIn('status: ok', store.text('/Descriptions/description-0003.md'))
-
-    def test_expired_request_does_not_block_a_fresh_one(self):
-        store = FakeStore({'request-0002.yaml': 'request: "0002"\n'}, age=500)
-        store.files['/Requests/request-0003.yaml'] = VALID.encode('utf-8')
-        store.mtimes['/Requests/request-0003.yaml'] = NOW - 5
-        handled, _, _ = self.run_one(store)
-        self.assertEqual(handled, ['0003'])
-        self.assertIn('reason: expired', store.text('/Descriptions/description-0002.md'))
-
-    def test_camera_failure_writes_error_description_only(self):
+    def test_not_a_whiteboard_on_every_camera_is_an_error_without_image(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_one(store, camera=FakeCamera(fail=True))
+        describer = FakeDescriber(default='whiteboard: no')
+        self.run_one(store, FakeCameras([0, 1]), describer)
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
-        desc = store.text('/Descriptions/description-0003.md')
-        self.assertIn('status: error', desc)
-        self.assertIn('no frame within 20 s', desc)
-        self.assertNotIn('status: ok', desc)
+        self.assertIn('reason: camera 0: not a whiteboard',
+                      store.text('/Descriptions/description-0003.md'))
 
-    def test_describe_failure_keeps_image_and_writes_error(self):
+    def test_describe_without_whiteboard_line_counts_as_failure(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_one(store, describer=FakeDescriber(fail=True))
-        self.assertEqual(store.files['/Images/image-0003.jpg'], b'fake-jpeg')
+        describer = FakeDescriber(default='a whiteboard with text')
+        self.run_one(store, FakeCameras([0]), describer)
         desc = store.text('/Descriptions/description-0003.md')
         self.assertIn('status: error', desc)
-        self.assertIn('claude timed out', desc)
+        self.assertIn('describe: answer did not start with a whiteboard line', desc)
 
-    def test_empty_description_is_an_error(self):
+    def test_describe_error_counts_as_failure_for_that_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_one(store, describer=FakeDescriber(text='   \n'))
-        self.assertIn('status: error', store.text('/Descriptions/description-0003.md'))
+        describer = FakeDescriber(answers={b'photo-0': 'ERR:claude timed out after 120 s'})
+        handled, cameras, _, _ = self.run_one(store, FakeCameras([0, 1]), describer)
+        self.assertEqual(cameras.captures, [0, 1])
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
 
-    def test_invalid_request_writes_error_without_camera(self):
-        store = FakeStore({'request-0003.yaml': VALID + 'marker_color: pink\n'})
-        _, camera, describer = self.run_one(store)
-        self.assertEqual(camera.calls, 0)
-        self.assertEqual(describer.calls, [])
-        desc = store.text('/Descriptions/description-0003.md')
-        self.assertIn('status: error', desc)
-        self.assertIn('marker_color', desc)
+    def test_single_camera_works(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        handled, cameras, _, _ = self.run_one(store, FakeCameras([4]))
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(cameras.captures, [4])
 
-    def test_error_reason_is_one_line(self):
-        store = FakeStore({'request-0003.yaml': 'request: "0003"\nfoo\nbar\n'})
-        self.run_one(store)
-        desc = store.text('/Descriptions/description-0003.md')
-        reason = [l for l in desc.splitlines() if l.startswith('reason:')]
-        self.assertEqual(len(reason), 1)
+    def test_single_camera_fails_gives_error(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_one(store, FakeCameras([4], plan={4: 'no frame'}))
+        self.assertIn('reason: camera 4: no frame', store.text('/Descriptions/description-0003.md'))
+
+    def test_no_camera_listed_gives_error(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_one(store, FakeCameras(list_error='ffmpeg lists no camera'))
+        self.assertIn('reason: camera: ffmpeg lists no camera',
+                      store.text('/Descriptions/description-0003.md'))
+
+    def test_each_camera_tried_at_most_once_no_loop(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1, 2], plan={0: 'no', 1: 'no', 2: 'no'})
+        self.run_one(store, cameras, memory=FakeMemory(1))
+        self.assertEqual(cameras.captures, [1, 0, 2])
+
+    def test_memory_none_uses_listing_order(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: 'no frame'})
+        self.run_one(store, cameras, memory=FakeMemory(None))
+        self.assertEqual(cameras.captures, [0, 1])
 
     def test_half_written_file_never_visible(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -242,18 +309,69 @@ class ProcessTests(unittest.TestCase):
             if kind == 'upload':
                 self.assertTrue(path.endswith('.partial'), path)
 
+    def test_image_without_description_is_closed_as_interrupted(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/Images/image-0003.jpg'] = b'old'
+        handled, cameras, describer, _ = self.run_one(store)
+        self.assertEqual(handled, [])
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        desc = store.text('/Descriptions/description-0003.md')
+        self.assertTrue(desc.startswith('status: error\n'))
+        self.assertIn('reason: interrupted before the description was written', desc)
+
+    def test_request_older_than_limit_is_expired_without_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE + 1)
+        handled, cameras, describer, _ = self.run_one(store)
+        self.assertEqual(handled, [])
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        self.assertFalse(store.exists('/Images/image-0003.jpg'))
+        desc = store.text('/Descriptions/description-0003.md')
+        self.assertTrue(desc.startswith('status: error\n'))
+        self.assertIn('reason: expired', desc)
+
+    def test_request_at_the_limit_is_still_processed(self):
+        store = FakeStore({'request-0003.yaml': VALID}, age=ww.MAX_REQUEST_AGE)
+        handled, _, _, _ = self.run_one(store)
+        self.assertEqual(handled, ['0003'])
+
+    def test_expired_request_does_not_block_a_fresh_one(self):
+        store = FakeStore({'request-0002.yaml': 'request: "0002"\n'}, age=500)
+        store.files['/Requests/request-0003.yaml'] = VALID.encode('utf-8')
+        store.mtimes['/Requests/request-0003.yaml'] = NOW - 5
+        handled, _, _, _ = self.run_one(store)
+        self.assertEqual(handled, ['0003'])
+        self.assertIn('reason: expired', store.text('/Descriptions/description-0002.md'))
+
+    def test_already_described_request_is_skipped(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/Descriptions/description-0003.md'] = b'status: ok\n'
+        handled, cameras, _, _ = self.run_one(store)
+        self.assertEqual(handled, [])
+        self.assertEqual(cameras.captures, [])
+
+    def test_invalid_request_writes_error_without_camera(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'marker_color: pink\n'})
+        handled, cameras, describer, _ = self.run_one(store)
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        desc = store.text('/Descriptions/description-0003.md')
+        self.assertIn('status: error', desc)
+        self.assertIn('marker_color', desc)
+
     def test_oldest_request_first(self):
         store = FakeStore({'request-0007.yaml': 'request: "0007"\n',
                            'request-0002.yaml': 'request: "0002"\n'})
-        handled, _, _ = self.run_one(store)
+        handled, _, _, _ = self.run_one(store)
         self.assertEqual(handled, ['0002', '0007'])
 
     def test_old_txt_requests_are_ignored(self):
         store = FakeStore({'request-0001.txt': 'old format\n',
                            'request-0002.txt': 'old format\n'})
-        handled, camera, _ = self.run_one(store)
+        handled, cameras, _, _ = self.run_one(store)
         self.assertEqual(handled, [])
-        self.assertEqual(camera.calls, 0)
+        self.assertEqual(cameras.captures, [])
 
     def test_mode_diff_is_described_as_snapshot_with_note(self):
         store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})

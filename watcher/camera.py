@@ -1,91 +1,143 @@
-"""One photo on demand from the camera, with a hard time limit (Mac: imagesnap).
+"""Cameras through ffmpeg avfoundation, by index only (no serial or ID lookup).
 
-Each call opens the camera, takes one photo and closes it again. Selected by
-the listed name, not by serial number. Standard library only, Python 3.9.
-
-Test (5 photos, a few seconds apart, saved outside the repo):
-    python3 watcher/camera.py --photos 5 --dir <folder>
+list_cameras() gives the video devices, capture() takes one photo from one index
+and rejects it when it is near-black (closed lid). Rotation and brightness use
+ffmpeg filters (hflip, vflip, signalstats). Standard library only, Python 3.9.
 """
 
-import argparse
+import json
 import os
-import shutil
+import re
 import subprocess
-import sys
-import tempfile
-import time
 
 from whiteboard_watcher import CameraError
 
-CAMERA_NAME = 'Logitech Webcam C930e'  # as listed by: imagesnap -l
-IMAGESNAP = 'imagesnap'
-WARMUP = 1      # seconds imagesnap waits before the shot
-TIMEOUT = 20    # hard limit for one photo, seconds
-JPEG_START = b'\xff\xd8\xff'
+FFMPEG = 'ffmpeg'
+LIST_TIMEOUT = 15
+CAPTURE_TIMEOUT = 25
+BRIGHTNESS_TIMEOUT = 10
+FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
+SIZE = '1920x1080'
+FRAMES = 3          # keep the last of a few frames: the first ones are often dark
+DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
+DEVICE = re.compile(r'\[(\d+)\] (.+)$')
+NOT_CAMERAS = ('Capture screen',)  # screen recording is not a camera
+BRIGHTNESS = re.compile(r'lavfi\.signalstats\.YAVG=([0-9.]+)')
 
 
-class ImagesnapCamera(object):
+def parse_video_devices(text):
+    """Return [(index, name)] from the video section of ffmpeg's device listing."""
+    devices = []
+    in_video = False
+    for line in text.splitlines():
+        if 'AVFoundation video devices' in line:
+            in_video = True
+        elif 'AVFoundation audio devices' in line:
+            break
+        elif in_video:
+            match = DEVICE.search(line)
+            if match and not match.group(2).startswith(NOT_CAMERAS):
+                devices.append((int(match.group(1)), match.group(2).strip()))
+    return devices
 
-    def __init__(self, name=CAMERA_NAME, timeout=TIMEOUT, run=subprocess.run):
-        self.name = name
-        self.timeout = timeout
+
+def list_cameras(name_filter='', run=subprocess.run):
+    """Video devices as [(index, name)]. Optional name filter (case-insensitive substring)."""
+    cmd = [FFMPEG, '-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', '']
+    try:
+        done = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=LIST_TIMEOUT)
+    except FileNotFoundError:
+        raise CameraError('ffmpeg not found')
+    except subprocess.TimeoutExpired:
+        raise CameraError('ffmpeg listing timed out')
+    devices = parse_video_devices(done.stderr.decode('utf-8', 'replace'))
+    if name_filter:
+        devices = [d for d in devices if name_filter.lower() in d[1].lower()]
+    if not devices:
+        raise CameraError('ffmpeg lists no camera')
+    return devices
+
+
+def mean_brightness(path, run=subprocess.run):
+    """Mean brightness (0 to 255) of one image, from ffmpeg signalstats."""
+    cmd = [FFMPEG, '-hide_banner', '-loglevel', 'info', '-i', path,
+           '-vf', 'signalstats,metadata=mode=print:file=-', '-f', 'null', '-']
+    try:
+        done = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=BRIGHTNESS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise CameraError('brightness check timed out')
+    match = BRIGHTNESS.search(done.stdout.decode('utf-8', 'replace'))
+    if not match:
+        raise CameraError('no brightness value')
+    return float(match.group(1))
+
+
+def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.run):
+    """One photo from camera `index` as JPEG bytes. Raises CameraError.
+
+    Frames go to `folder` (created by the caller) and are deleted again.
+    """
+    pattern = os.path.join(folder, 'frame-%d-%%d.jpg' % index)
+    filters = ['hflip', 'vflip'] if rotate else []
+    filters.append('fps=1')
+    cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
+           '-framerate', FRAMERATE, '-video_size', SIZE,
+           '-i', '%d:none' % index, '-vf', ','.join(filters),
+           '-frames:v', str(FRAMES), '-y', pattern]
+    last = pattern % FRAMES
+    try:
+        try:
+            done = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=CAPTURE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise CameraError('no photo within %d s' % CAPTURE_TIMEOUT)
+        if done.returncode != 0 or not os.path.exists(last):
+            lines = done.stderr.decode('utf-8', 'replace').strip().splitlines()
+            raise CameraError('no frame (%s)' % (lines[-1] if lines else 'no message'))
+        brightness = mean_brightness(last, run)
+        if brightness < dark_below:
+            raise CameraError('dark, closed lid (mean %d)' % brightness)
+        with open(last, 'rb') as handle:
+            return handle.read()
+    finally:
+        for frame in range(1, FRAMES + 1):
+            try:
+                os.remove(pattern % frame)
+            except OSError:
+                pass
+
+
+def load_last(path):
+    """Index of the last working camera from the state file, or None if missing or corrupt."""
+    try:
+        with open(path) as handle:
+            index = json.load(handle).get('index')
+    except (OSError, ValueError, AttributeError):
+        return None
+    return index if isinstance(index, int) else None
+
+
+def save_last(path, index, name):
+    """Write the state file atomically. It is only a hint, see camera_order()."""
+    temp = path + '.tmp'
+    with open(temp, 'w') as handle:
+        json.dump({'index': index, 'name': name}, handle)
+        handle.write('\n')
+    os.replace(temp, path)
+
+
+class Cameras(object):
+    """What handle_request() needs: list() and capture(index)."""
+
+    def __init__(self, folder, name_filter='', rotate=True, dark_below=DARK_BELOW,
+                 run=subprocess.run):
+        self.folder = folder
+        self.name_filter = name_filter
+        self.rotate = rotate
+        self.dark_below = dark_below
         self.run = run
 
-    def take_photo(self):
-        folder = tempfile.mkdtemp(prefix='wbw-')
-        out = os.path.join(folder, 'photo.jpg')
-        try:
-            cmd = [IMAGESNAP, '-q', '-w', str(WARMUP), '-d', self.name, out]
-            try:
-                done = self.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                timeout=self.timeout)
-            except FileNotFoundError:
-                raise CameraError('imagesnap not found')
-            except subprocess.TimeoutExpired:
-                raise CameraError('no photo within %d s' % self.timeout)
-            if done.returncode != 0:
-                lines = done.stderr.decode('utf-8', 'replace').strip().splitlines()
-                last = lines[-1] if lines else 'no message'
-                raise CameraError('imagesnap exit %d: %s' % (done.returncode, last))
-            try:
-                with open(out, 'rb') as handle:
-                    data = handle.read()
-            except OSError:
-                raise CameraError('no photo file written')
-            if not data.startswith(JPEG_START):
-                raise CameraError('output is not a JPEG')
-            return data
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
+    def list(self):
+        return list_cameras(self.name_filter, self.run)
 
-
-def main(argv):
-    parser = argparse.ArgumentParser(description='Take photos for a camera test.')
-    parser.add_argument('--photos', type=int, default=5)
-    parser.add_argument('--gap', type=float, default=3.0, help='seconds between photos')
-    parser.add_argument('--dir', required=True, help='folder for the test photos (not in the repo)')
-    args = parser.parse_args(argv)
-    os.makedirs(args.dir, exist_ok=True)
-    camera = ImagesnapCamera()
-    failures = 0
-    for i in range(1, args.photos + 1):
-        started = time.time()
-        try:
-            data = camera.take_photo()
-        except CameraError as err:
-            failures += 1
-            print('photo %d: FAILED after %.1f s: %s' % (i, time.time() - started, err))
-        else:
-            path = os.path.join(args.dir, 'test-%d.jpg' % i)
-            with open(path, 'wb') as handle:
-                handle.write(data)
-            print('photo %d: ok, %d bytes, %.1f s -> %s' % (
-                i, len(data), time.time() - started, path))
-        if i < args.photos:
-            time.sleep(args.gap)
-    print('done: %d of %d ok' % (args.photos - failures, args.photos))
-    return 1 if failures else 0
-
-
-if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    def capture(self, index):
+        return capture(index, self.folder, self.rotate, self.dark_below, self.run)
