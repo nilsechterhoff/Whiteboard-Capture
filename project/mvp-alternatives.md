@@ -158,6 +158,16 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 
 **Camera findings:** the index of the whiteboard camera changed between runs with no replug. The FaceTime camera hit the 25 s hard limit. Dark frames (closed lid) are rejected by brightness (threshold 20).
 
+### Warm-up and retry (2026-10-23, requests 0009 to 0011, launchd service)
+
+| Line # | Request | Status | Camera 1, first try | Camera 1, retry | Total before description upload | Request to description file |
+|---|---|---|---|---|---|---|
+| 1 | 0009 | ok | dark (brightness 1.5), photo 5.7 s | bright (130.3), photo 4.1 s, describe 10.8 s | 25.9 s | 35.3 s |
+| 2 | 0010 | ok | dark (1.3), photo 5.9 s | bright (130.0), photo 4.2 s, describe 10.5 s | 27.9 s | 38.0 s |
+| 3 | 0011 | ok | dark (1.4), photo 5.6 s | bright (129.9), photo 4.1 s, describe 8.5 s | 24.5 s | 34.0 s |
+
+Warm-up: the first 1.5 s are discarded (3 frames at 2 fps), the 4th frame is the photo. A dark first try is retried once. Every first try was dark, so the retry is what gets the picture. Still above the 10 s target (BL-018).
+
 ### Open risks and tests
 
 | Line # | Risk | Test |
