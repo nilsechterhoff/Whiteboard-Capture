@@ -1,6 +1,23 @@
 # Whiteboard-Capture
 
-Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, summarize and build on it during and between whiteboard sessions, near-live (every ~20 s).
+Lets Claude see a **120 × 90 cm whiteboard** so Nils can brainstorm with it, hands-free in Claude's **live voice mode**.
+
+## Current main path: MVP B (since 2026-10-22)
+
+Voice mode cannot view images (tested), so a separate **image agent** turns a fresh photo into text and voice mode reads the text. Request and answer travel as files in a Dropbox folder, on demand, with no self-built MCP.
+
+**Flow:** Nils says "look at the whiteboard" → voice agent writes `request-NNNN.txt` → Mac watcher starts the image agent → `description-NNNN.md` → voice agent reads it and answers.
+
+| Line # | Item | Where |
+|---|---|---|
+| 1 | Concept, flow, request fields, risks | [project/mvp-alternatives.md](project/mvp-alternatives.md) |
+| 2 | Decisions (`proposed`, Nils accepts) | ADR-0006, ADR-0007 |
+| 3 | Rules for the voice agent | `Whiteboard/instructions.md` in Dropbox (source of truth) |
+| 4 | Status | Voice side built and partly tested; image agent and watcher **not built** ([backlog](project/backlog.md) BL-016, BL-017) |
+
+## Earlier pipeline (timed capture, parked)
+
+Captures a frame every ~20 s so Claude can read it in text mode. Built and tested with a stub; ADR-0007 would supersede ADR-0002, ADR-0003 and ADR-0005 once accepted.
 
 **Pipeline:** APEMAN A70 (USB, PC camera mode) → `script/wbcapture.sh` (launchd, `imagesnap`) → **Nextcloud folder** on the Mac → Nextcloud sync → any Claude instance reads it.
 
@@ -13,7 +30,8 @@ Captures the current state of a **120 × 90 cm whiteboard** so Claude can read, 
 | 3 | ADRs 0001–0003 | `accepted` (2026-10-12) |
 | 4 | ADR-0004 (Nextcloud storage, 30 s) | `accepted` (2026-10-12) |
 | 5 | ADR-0005 (20 s interval) | `accepted` (2026-10-12) |
-| 6 | Next steps | [project/backlog.md](project/backlog.md) |
+| 6 | ADR-0006, ADR-0007 (MVP B) | `proposed` (2026-10-22) |
+| 7 | Next steps | [project/backlog.md](project/backlog.md) |
 
 ## Where things live
 
@@ -71,6 +89,7 @@ Environment variables, set in the launchd plist (`install.sh` fills folder and p
 | 2 | `project/setup/` | `install.sh`, `uninstall.sh`, launchd plist template |
 | 3 | `project/handover/` | Concept handoff, Claude Code install instructions |
 | 4 | `project/backlog.md` | Open items and tasks |
+| 4a | `project/mvp-alternatives.md` | MVP concepts; MVP B is the current main path |
 | 5 | `docs/decisions/` | ADRs (location required by STD-001) |
 
 ## Standards
@@ -91,3 +110,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 3 | 0003 | [Integrate the agent through a shared folder and trigger file](docs/decisions/0003-integrate-the-agent-through-a-shared-folder-and-trigger-file.md) | accepted |
 | 4 | 0004 | [Store captured images in a synced Nextcloud folder](docs/decisions/0004-store-captured-images-in-a-synced-nextcloud-folder.md) | accepted |
 | 5 | 0005 | [Capture live frames every 20 seconds](docs/decisions/0005-capture-live-frames-every-20-seconds.md) | accepted |
+| 6 | 0006 | [Describe the board with an image agent and hand text to voice mode](docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) | proposed |
+| 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | proposed |

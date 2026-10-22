@@ -20,7 +20,11 @@ Tasks and open ideas go to `project/backlog.md`, not into ADRs.
 
 Never commit captured images to Git (ADR-0004).
 
-## Reading the whiteboard (agent procedure)
+## Current main path
+
+MVP B (Dropbox request/description loop, on demand) is the main path since 2026-10-22: see [project/mvp-alternatives.md](project/mvp-alternatives.md) and ADR-0006/0007 (`proposed`). The voice agent's rules live in `Whiteboard/instructions.md` in Dropbox. The procedure below belongs to the earlier timed pipeline (parked).
+
+## Reading the whiteboard (agent procedure, earlier timed pipeline)
 
 All paths are relative to the capture folder.
 
