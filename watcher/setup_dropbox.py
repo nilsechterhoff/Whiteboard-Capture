@@ -1,16 +1,23 @@
-"""One-time Dropbox authorization for the MVP B watcher.
+"""One-time setup for the MVP B watcher.
 
-Asks for the app key and app secret (hidden input), prints the authorization
-link, takes the code you paste (hidden), exchanges it for a refresh token and
-stores the three values in the config file, mode 600. Prints no secrets.
+1. Dropbox authorization: asks for the app key and app secret (hidden input), prints
+   the authorization link, takes the code you paste (hidden), exchanges it for a refresh
+   token and stores everything in the config file, mode 600. Prints no secrets.
+2. Background service (launchd), only after you type yes: prints the exact paths, then
+   writes the launchd plist and its log file.
+3. Uninstall: removes the service and its two files (the config folder is kept).
+
+Run:        python3 watcher/setup_dropbox.py                  (add --replace to overwrite)
+Service:    python3 watcher/setup_dropbox.py --service        (needs the config)
+Uninstall:  python3 watcher/setup_dropbox.py --uninstall
 Standard library only, Python 3.9.
-
-Run: python3 watcher/setup_dropbox.py          (add --replace to overwrite)
 """
 
 import getpass
 import json
 import os
+import plistlib
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -18,6 +25,17 @@ import urllib.request
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
+LABEL = 'com.nilsechterhoff.whiteboard-watcher'
+PLIST_PATH = os.path.expanduser('~/Library/LaunchAgents/%s.plist' % LABEL)
+LAUNCHD_LOG = os.path.expanduser('~/Library/Logs/whiteboard-watcher.launchd.log')
+# Starting values for config.json. Models live here, not in the watcher code.
+DEFAULT_SETTINGS = {
+    'models': {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'},
+    'default_model': 'haiku',
+    'camera_name': '',
+    'rotate_180': True,
+    'dark_below': 20,
+}
 AUTHORIZE_URL = 'https://www.dropbox.com/oauth2/authorize'
 TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token'
 LIST_URL = 'https://api.dropboxapi.com/2/files/list_folder'
@@ -102,7 +120,8 @@ def write_config(path, app_key, app_secret, refresh_token):
     os.makedirs(folder, mode=0o700, exist_ok=True)
     os.chmod(folder, 0o700)
     temp = path + '.tmp'
-    data = {'app_key': app_key, 'app_secret': app_secret, 'refresh_token': refresh_token}
+    data = dict(DEFAULT_SETTINGS)
+    data.update({'app_key': app_key, 'app_secret': app_secret, 'refresh_token': refresh_token})
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as handle:
         json.dump(data, handle, indent=2)
@@ -111,7 +130,113 @@ def write_config(path, app_key, app_secret, refresh_token):
     os.chmod(path, 0o600)
 
 
+def service_paths(script_dir=None, python=None):
+    """Exact paths the service uses. Printed before anything is written."""
+    here = script_dir or os.path.dirname(os.path.abspath(__file__))
+    return {
+        'plist': PLIST_PATH,
+        'log': LAUNCHD_LOG,
+        'script': os.path.join(here, 'watcher.py'),
+        'python': python or sys.executable,
+    }
+
+
+def plist_bytes(paths):
+    """The launchd job: run the watcher at login and keep it running. PATH includes the
+    Homebrew folder (ffmpeg) and ~/.local/bin (claude)."""
+    job = {
+        'Label': LABEL,
+        'ProgramArguments': [paths['python'], paths['script']],
+        'EnvironmentVariables': {
+            'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:%s'
+                    % os.path.expanduser('~/.local/bin'),
+        },
+        'RunAtLoad': True,
+        'KeepAlive': True,
+        'ThrottleInterval': 60,
+        'StandardOutPath': paths['log'],
+        'StandardErrorPath': paths['log'],
+    }
+    return plistlib.dumps(job)
+
+
+def launchctl(runner, *args):
+    return runner(['launchctl'] + list(args), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def install_service(paths, runner=subprocess.run, uid=None):
+    """Write the plist and its log file, then start the job (launchctl bootstrap)."""
+    uid = os.getuid() if uid is None else uid
+    os.makedirs(os.path.dirname(paths['plist']), exist_ok=True)
+    os.makedirs(os.path.dirname(paths['log']), exist_ok=True)
+    with open(paths['plist'], 'wb') as handle:
+        handle.write(plist_bytes(paths))
+    with open(paths['log'], 'a'):
+        pass
+    launchctl(runner, 'bootout', 'gui/%d/%s' % (uid, LABEL))  # ok if it was not running
+    done = launchctl(runner, 'bootstrap', 'gui/%d' % uid, paths['plist'])
+    if done.returncode != 0:
+        raise SetupError('launchctl bootstrap failed (exit %d)' % done.returncode)
+
+
+def uninstall_service(paths, runner=subprocess.run, uid=None):
+    """Stop the job and remove the plist and the launchd log. The config folder is kept."""
+    uid = os.getuid() if uid is None else uid
+    launchctl(runner, 'bootout', 'gui/%d/%s' % (uid, LABEL))
+    removed = []
+    for key in ('plist', 'log'):
+        if os.path.exists(paths[key]):
+            os.remove(paths[key])
+            removed.append(paths[key])
+    return removed
+
+
+def confirm(question):
+    return input('%s (type yes to continue): ' % question).strip() == 'yes'
+
+
+def offer_service():
+    paths = service_paths()
+    print()
+    print('Background service (starts the watcher at login and keeps it running).')
+    print('This creates:')
+    print('  %s' % paths['plist'])
+    print('  %s' % paths['log'])
+    print('It runs: %s %s' % (paths['python'], paths['script']))
+    if not confirm('Create these files and start the service now?'):
+        print('Service not installed. Run with --service later.')
+        return 0
+    try:
+        install_service(paths)
+    except (OSError, SetupError) as err:
+        print('Failed: %s' % err)
+        return 1
+    print('Service installed and started. Log: %s' % paths['log'])
+    return 0
+
+
+def uninstall(argv):
+    paths = service_paths()
+    print('This removes the service and these two files:')
+    print('  %s' % paths['plist'])
+    print('  %s' % paths['log'])
+    print('The config folder (keys, settings) is kept.')
+    if not confirm('Remove them now?'):
+        print('Nothing removed.')
+        return 0
+    removed = uninstall_service(paths)
+    print('Removed: %s' % (', '.join(removed) if removed else 'nothing (already gone)'))
+    return 0
+
+
 def main(argv):
+    if '--uninstall' in argv:
+        return uninstall(argv)
+    if '--service' in argv:
+        if not os.path.exists(CONFIG_PATH):
+            print('No config yet; run setup_dropbox.py first.')
+            return 1
+        return offer_service()
     if os.path.exists(CONFIG_PATH) and '--replace' not in argv:
         print('A config already exists: %s' % CONFIG_PATH)
         print('Run with --replace to overwrite it.')
@@ -144,7 +269,7 @@ def main(argv):
     print('Saved config (mode 600): %s' % CONFIG_PATH)
     print('App folder root has %d entries%s' % (
         len(names), ': ' + ', '.join(names) if names else ' (empty)'))
-    return 0
+    return offer_service()
 
 
 if __name__ == '__main__':

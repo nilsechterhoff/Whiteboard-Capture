@@ -44,8 +44,12 @@ def description_path(number):
     return '/Descriptions/description-%s.md' % number
 
 
-def parse_request(text, number):
-    """Parse the flat 'name: value' lines of a request. Reject anything else."""
+def parse_request(text, number, models, default_model):
+    """Parse the flat 'name: value' lines of a request. Reject anything else.
+
+    `models` maps the allowed short names (from the config file) to model IDs.
+    A request without a model field gets `default_model`.
+    """
     fields = {}
     for raw in text.splitlines():
         line = raw.strip()
@@ -60,7 +64,7 @@ def parse_request(text, number):
         if key in fields:
             raise RequestError('duplicate field: %s' % key)
         fields[key] = value
-    unknown = sorted(set(fields) - set(ALLOWED) - set(['request']))
+    unknown = sorted(set(fields) - set(ALLOWED) - set(['request', 'model']))
     if unknown:
         raise RequestError('unknown field: %s' % unknown[0])
     if fields.get('request') != number:
@@ -68,6 +72,11 @@ def parse_request(text, number):
     for key, allowed in sorted(ALLOWED.items()):
         if key in fields and fields[key] not in allowed:
             raise RequestError('%s: invalid value "%s"' % (key, fields[key]))
+    if 'model' not in fields:
+        fields['model'] = default_model
+    elif fields['model'] not in models:
+        raise RequestError('model: invalid value "%s"; allowed: %s' % (
+            fields['model'], ', '.join(sorted(models))))
     return fields
 
 
@@ -102,13 +111,9 @@ def publish(store, path, data):
     store.move(temp, path)
 
 
-def one_line(text):
-    return ' '.join(str(text).split())
-
-
 def render_error(number, reasons):
     lines = ['status: error', 'request: "%s"' % number]
-    lines += ['reason: %s' % one_line(reason) for reason in reasons]
+    lines += ['reason: %s' % ' '.join(str(reason).split()) for reason in reasons]
     return '\n'.join(lines) + '\n'
 
 
@@ -120,51 +125,84 @@ def render_ok(number, fields, body):
     return '\n'.join(lines) + '\n\n' + body.strip() + '\n'
 
 
-def fail(store, number, reasons):
-    publish(store, description_path(number), render_error(number, reasons).encode('utf-8'))
+def write_description(store, watch, number, text):
+    """Upload the description last. Returns the upload time (CSV log only, not in the block)."""
+    started = watch.clock()
+    publish(store, description_path(number), text.encode('utf-8'))
+    return watch.clock() - started
 
 
-def handle_request(store, cameras, describer, memory, name):
+def fail(store, watch, number, reasons):
+    """One error description for this request: the reasons, then the timing block."""
+    text = render_error(number, reasons) + '\n' + watch.block()
+    upload_s = write_description(store, watch, number, text)
+    watch.finish('error', upload_s)
+
+
+def handle_request(store, cameras, describer, memory, watch, settings, name):
     """Try the cameras one at a time (each at most once). Write the image and description
     of the first camera that shows a whiteboard, or one error description listing every try.
     """
     number = REQUEST_NAME.match(name).group(1)
     try:
-        fields = parse_request(store.read_text(request_path(name)), number)
+        fields = parse_request(store.read_text(request_path(name)), number,
+                               settings['models'], settings['default_model'])
     except ValueError as err:
-        fail(store, number, ['request: %s' % err])
+        fail(store, watch, number, ['request: %s' % err])
         return
+    watch.set_model(fields['model'])
+    started = watch.clock()
     try:
         devices = cameras.list()
     except CameraError as err:
-        fail(store, number, ['camera: %s' % err])
+        watch.camera_list(watch.clock() - started)
+        fail(store, watch, number, ['camera: %s' % err])
         return
+    watch.camera_list(watch.clock() - started)
     reasons = []
     for index in camera_order([i for i, _ in devices], memory.index()):
         try:
             photo = cameras.capture(index)
         except CameraError as err:
+            info = dict(getattr(cameras, 'last', {}))
+            watch.camera_try(index, err, info.get('photo_s'), info.get('brightness'))
             reasons.append('camera %d: %s' % (index, err))
             continue
+        info = dict(getattr(cameras, 'last', {}))
+        started = watch.clock()
         try:
             is_board, body = split_answer(describer.describe(photo, fields))
         except DescribeError as err:
+            describe_s = watch.clock() - started
+            watch.camera_try(index, 'describe error: %s' % err, info.get('photo_s'),
+                             info.get('brightness'), describe_s)
             reasons.append('camera %d: describe: %s' % (index, err))
             continue
+        describe_s = watch.clock() - started
         if not is_board:
+            watch.camera_try(index, 'not a whiteboard', info.get('photo_s'),
+                             info.get('brightness'), describe_s)
             reasons.append('camera %d: not a whiteboard' % index)
             continue
         if not body:
+            watch.camera_try(index, 'describe: empty description', info.get('photo_s'),
+                             info.get('brightness'), describe_s)
             reasons.append('camera %d: describe: empty description' % index)
             continue
+        watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
+        started = watch.clock()
         publish(store, image_path(number), photo)
-        publish(store, description_path(number), render_ok(number, fields, body).encode('utf-8'))
+        watch.image_upload(watch.clock() - started)
+        text = render_ok(number, fields, body) + '\n' + watch.block()
+        upload_s = write_description(store, watch, number, text)
         memory.remember(index)
+        watch.finish('ok', upload_s)
         return
-    fail(store, number, reasons or ['camera: no camera listed'])
+    fail(store, watch, number, reasons or ['camera: no camera listed'])
 
 
-def process_pending(store, cameras, describer, memory, now, max_age=MAX_REQUEST_AGE):
+def process_pending(store, cameras, describer, memory, watch, now, settings,
+                    max_age=MAX_REQUEST_AGE):
     """Close every request that has no description yet, oldest first.
 
     - description exists: nothing to do
@@ -182,12 +220,14 @@ def process_pending(store, cameras, describer, memory, now, max_age=MAX_REQUEST_
         if store.exists(description_path(number)):
             continue
         try:
+            modified = store.modified(request_path(name))
+            watch.begin(number, now - modified)
             if store.exists(image_path(number)):
-                fail(store, number, ['interrupted before the description was written'])
-            elif now - store.modified(request_path(name)) > max_age:
-                fail(store, number, ['expired'])
+                fail(store, watch, number, ['interrupted before the description was written'])
+            elif now - modified > max_age:
+                fail(store, watch, number, ['expired'])
             else:
-                handle_request(store, cameras, describer, memory, name)
+                handle_request(store, cameras, describer, memory, watch, settings, name)
                 handled.append(number)
         except OSError:
             continue

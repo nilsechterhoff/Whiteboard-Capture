@@ -84,10 +84,31 @@ Design choices:
 | 3 | `region_v` | top, middle, bottom | whole height | Vertical focus |
 | 4 | `region_h` | left, center, right | whole width | Horizontal focus; combines with `region_v` (3 × 3 grid) or stands alone |
 | 5 | `mode` | snapshot, diff | snapshot | snapshot: full current state. diff: only what is new since the last request |
+| 6 | `model` | short names from the config file (now: haiku, sonnet, opus) | `default_model` in the config (now: haiku) | Model for the describe step. Any other value: error description, no photo |
 
 - Nils speaks casually; the voice agent translates to these exact values.
 - **`diff` is a placeholder:** the image agent cannot compare photos yet (it would need the previous photo or description). Do not rely on it.
 - Request file = a container: later fields (for example a free question) need no redesign.
+- Short names map to model IDs in the config file (`models`), not in the code. A new model is a one-line edit there.
+
+### Description format
+
+`Descriptions/description-NNNN.md`, written last. Order:
+
+1. First line `status: ok` or `status: error` (the voice agent checks this line).
+2. `request: "NNNN"` and `fields: ...` (including `model=...`), or for an error one `reason:` line per camera or cause.
+3. Body: text by region, shapes and arrows, short summary (ok only). The `whiteboard: yes/no` line from the describe step is not in the file.
+4. A blank line and the marker line `--- timing, do not read aloud ---`, then a short timing block (machine, model, detect, camera list, each camera try, image upload, total before the description upload).
+
+**Marker rule:** everything below the marker line is for the logs, not for reading aloud. `instructions.md` in Dropbox tells the voice agent to ignore it. The final upload of the description is not in the block. It goes only to the local CSV log.
+
+### Stopwatch and voice check window
+
+| Line # | Item | Value |
+|---|---|---|
+| 1 | Timing log (one row per request) | `~/Library/Logs/whiteboard-watcher-timings.csv`. Columns: when, request, machine, model, outcome, detect_s, camera_list_s, tries (`index:result:photo_s:brightness:describe_s`), image_upload_s, describe_upload_s, total_s. No whiteboard content |
+| 2 | Voice check window | First check at 10 s after the request, then every 5 s until 40 s |
+| 3 | `instructions.md` (Dropbox) | Updated by Claude in the chat, not by the watcher and not by Nils's script. It holds the marker rule and the `model` field |
 
 ### Where the rules live
 
@@ -128,6 +149,8 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 | 6 | Uploads and renames of image and description | 5.8 s |
 | 7 | Pass total (watcher log) | 32.1 s |
 | 8 | Request created to description (Dropbox server time) | about 34 s |
+
+**Worst case, request-0004 (all five cameras tried, room dark):** 46.5 s in total. One camera hit the 25 s limit. Each dark try costs about 5 to 6 s. The request was closed with one error description, no describe call.
 
 **Above the 10 s target.** The describe step and the uploads are the largest parts. Tuning is open (BL-018); the voice side waits 10 s and then looks once.
 

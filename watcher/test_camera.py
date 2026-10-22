@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
+import testroot
 import unittest
 
 import camera as cam
@@ -94,7 +94,7 @@ class ListTests(unittest.TestCase):
 class CaptureTests(unittest.TestCase):
 
     def setUp(self):
-        self.folder = tempfile.mkdtemp()
+        self.folder = testroot.mkdtemp()
 
     def tearDown(self):
         shutil.rmtree(self.folder)
@@ -157,7 +157,7 @@ class CaptureTests(unittest.TestCase):
 class StateTests(unittest.TestCase):
 
     def setUp(self):
-        self.folder = tempfile.mkdtemp()
+        self.folder = testroot.mkdtemp()
         self.path = os.path.join(self.folder, 'last_camera.json')
 
     def tearDown(self):

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from whiteboard_watcher import CameraError
 
@@ -72,11 +73,14 @@ def mean_brightness(path, run=subprocess.run):
     return float(match.group(1))
 
 
-def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.run):
+def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.run, timing=None):
     """One photo from camera `index` as JPEG bytes. Raises CameraError.
 
     Frames go to `folder` (created by the caller) and are deleted again.
+    `timing` (a dict, optional) gets photo_s, brightness_s and brightness, also when
+    the frame is rejected.
     """
+    timing = {} if timing is None else timing
     pattern = os.path.join(folder, 'frame-%d-%%d.jpg' % index)
     filters = ['hflip', 'vflip'] if rotate else []
     filters.append('fps=1')
@@ -86,14 +90,20 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
            '-frames:v', str(FRAMES), '-y', pattern]
     last = pattern % FRAMES
     try:
+        started = time.time()
         try:
             done = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=CAPTURE_TIMEOUT)
         except subprocess.TimeoutExpired:
             raise CameraError('no photo within %d s' % CAPTURE_TIMEOUT)
+        finally:
+            timing['photo_s'] = time.time() - started
         if done.returncode != 0 or not os.path.exists(last):
             lines = done.stderr.decode('utf-8', 'replace').strip().splitlines()
             raise CameraError('no frame (%s)' % (lines[-1] if lines else 'no message'))
+        started = time.time()
         brightness = mean_brightness(last, run)
+        timing['brightness_s'] = time.time() - started
+        timing['brightness'] = brightness
         if brightness < dark_below:
             raise CameraError('dark, closed lid (mean %d)' % brightness)
         with open(last, 'rb') as handle:
@@ -135,9 +145,11 @@ class Cameras(object):
         self.rotate = rotate
         self.dark_below = dark_below
         self.run = run
+        self.last = {}  # timing of the last capture, see capture()
 
     def list(self):
         return list_cameras(self.name_filter, self.run)
 
     def capture(self, index):
-        return capture(index, self.folder, self.rotate, self.dark_below, self.run)
+        self.last = {}
+        return capture(index, self.folder, self.rotate, self.dark_below, self.run, self.last)

@@ -3,11 +3,14 @@
 Run: cd watcher && python3 -m unittest -v test_setup_dropbox
 """
 
+import builtins
 import json
 import os
+import plistlib
 import shutil
 import stat
-import tempfile
+import subprocess
+import testroot
 import unittest
 import urllib.parse
 
@@ -17,7 +20,7 @@ import setup_dropbox as sd
 class SetupTests(unittest.TestCase):
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = testroot.mkdtemp()
         self.path = os.path.join(self.dir, 'whiteboard-watcher', 'config.json')
 
     def tearDown(self):
@@ -76,8 +79,11 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(folder_mode, 0o700)
         with open(self.path) as handle:
             data = json.load(handle)
-        self.assertEqual(data, {'app_key': 'KEY', 'app_secret': 'SECRET',
-                                'refresh_token': 'REFRESH'})
+        self.assertEqual(data['app_key'], 'KEY')
+        self.assertEqual(data['app_secret'], 'SECRET')
+        self.assertEqual(data['refresh_token'], 'REFRESH')
+        self.assertEqual(data['default_model'], 'haiku')
+        self.assertIn('claude-sonnet-5-5', data['models'].values())
         self.assertFalse(os.path.exists(self.path + '.tmp'))
 
     def test_write_config_replaces_old_file_and_keeps_mode(self):
@@ -89,6 +95,82 @@ class SetupTests(unittest.TestCase):
 
     def test_authorize_url_is_built_from_the_key_only(self):
         self.assertTrue(sd.authorize_url('K').startswith(sd.AUTHORIZE_URL + '?'))
+
+
+class ServiceTests(unittest.TestCase):
+
+    def setUp(self):
+        self.dir = testroot.mkdtemp()
+        self.paths = {
+            'plist': os.path.join(self.dir, 'LaunchAgents', 'com.nilsechterhoff.whiteboard-watcher.plist'),
+            'log': os.path.join(self.dir, 'Logs', 'whiteboard-watcher.launchd.log'),
+            'script': '/repo/watcher/watcher.py',
+            'python': '/usr/bin/python3',
+        }
+        self.calls = []
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def runner(self, cmd, **kwargs):
+        self.calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b'', b'')
+
+    def test_plist_runs_the_watcher_and_logs_to_the_launchd_log(self):
+        job = plistlib.loads(sd.plist_bytes(self.paths))
+        self.assertEqual(job['Label'], sd.LABEL)
+        self.assertEqual(job['ProgramArguments'], ['/usr/bin/python3', '/repo/watcher/watcher.py'])
+        self.assertTrue(job['RunAtLoad'])
+        self.assertTrue(job['KeepAlive'])
+        self.assertEqual(job['StandardOutPath'], self.paths['log'])
+        self.assertIn('/opt/homebrew/bin', job['EnvironmentVariables']['PATH'])
+
+    def test_install_writes_plist_and_log_then_bootstraps(self):
+        sd.install_service(self.paths, runner=self.runner, uid=501)
+        self.assertTrue(os.path.exists(self.paths['plist']))
+        self.assertTrue(os.path.exists(self.paths['log']))
+        self.assertEqual(self.calls[-1][:3], ['launchctl', 'bootstrap', 'gui/501'])
+
+    def test_install_fails_when_bootstrap_fails(self):
+        def failing(cmd, **kwargs):
+            code = 0 if 'bootout' in cmd else 5
+            return subprocess.CompletedProcess(cmd, code, b'', b'')
+        with self.assertRaises(sd.SetupError):
+            sd.install_service(self.paths, runner=failing, uid=501)
+
+    def test_uninstall_removes_plist_and_log_and_keeps_config(self):
+        sd.install_service(self.paths, runner=self.runner, uid=501)
+        config_dir = os.path.join(self.dir, 'config')
+        os.makedirs(config_dir)
+        keep = os.path.join(config_dir, 'config.json')
+        open(keep, 'w').close()
+        removed = sd.uninstall_service(self.paths, runner=self.runner, uid=501)
+        self.assertEqual(sorted(removed), sorted([self.paths['plist'], self.paths['log']]))
+        self.assertFalse(os.path.exists(self.paths['plist']))
+        self.assertFalse(os.path.exists(self.paths['log']))
+        self.assertTrue(os.path.exists(keep))
+        self.assertIn('bootout', self.calls[-1])
+
+    def test_uninstall_when_nothing_is_there_is_fine(self):
+        self.assertEqual(sd.uninstall_service(self.paths, runner=self.runner, uid=501), [])
+
+    def test_service_paths_point_at_the_watcher_next_to_the_setup_script(self):
+        paths = sd.service_paths(script_dir='/repo/watcher', python='/usr/bin/python3')
+        self.assertEqual(paths['script'], '/repo/watcher/watcher.py')
+        self.assertEqual(paths['plist'], os.path.expanduser(
+            '~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist'))
+        self.assertEqual(paths['log'], os.path.expanduser(
+            '~/Library/Logs/whiteboard-watcher.launchd.log'))
+
+    def test_consent_needs_the_word_yes(self):
+        original = builtins.input
+        try:
+            builtins.input = lambda prompt='': 'y'
+            self.assertFalse(sd.confirm('Create?'))
+            builtins.input = lambda prompt='': 'yes'
+            self.assertTrue(sd.confirm('Create?'))
+        finally:
+            builtins.input = original
 
 
 if __name__ == '__main__':

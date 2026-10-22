@@ -8,7 +8,9 @@ Usage:
 Config: ~/Library/Application Support/whiteboard-watcher/config.json
   app_key, app_secret, refresh_token (from setup_dropbox.py)
   camera_name (optional, default all cameras), rotate_180 (default true), dark_below (default 20)
+  models (short name -> model ID), default_model (a short name from models)
 Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
+        ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
 Python 3.9 standard library only.
 """
 
@@ -26,6 +28,7 @@ import camera as cam                       # noqa: E402
 import whiteboard_watcher as ww            # noqa: E402
 from describe import Describer             # noqa: E402
 from dropbox_store import DropboxStore     # noqa: E402
+from stopwatch import Watch                # noqa: E402
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -33,6 +36,7 @@ LAST_CAMERA_PATH = os.path.join(CONFIG_DIR, 'last_camera.json')
 WORK_DIR = os.path.join(CONFIG_DIR, 'work')
 LOCK_PATH = os.path.join(CONFIG_DIR, 'watcher.lock')
 LOG_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher.log')
+TIMINGS_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher-timings.csv')
 POLL_SECONDS = 1
 
 log = logging.getLogger('whiteboard')
@@ -50,9 +54,11 @@ def setup_logging():
 def load_config():
     with open(CONFIG_PATH) as handle:
         config = json.load(handle)
-    for key in ('app_key', 'app_secret', 'refresh_token'):
+    for key in ('app_key', 'app_secret', 'refresh_token', 'models', 'default_model'):
         if not config.get(key):
             raise SystemExit('config is missing %s; run setup_dropbox.py' % key)
+    if config['default_model'] not in config['models']:
+        raise SystemExit('default_model must be one of: %s' % ', '.join(sorted(config['models'])))
     config.setdefault('camera_name', '')
     config.setdefault('rotate_180', True)
     config.setdefault('dark_below', cam.DARK_BELOW)
@@ -91,9 +97,9 @@ class Timed(object):
         return timed
 
 
-def pass_once(store, cameras, describer, memory):
+def pass_once(store, cameras, describer, memory, watch, settings):
     started = time.time()
-    handled = ww.process_pending(store, cameras, describer, memory, now=time.time())
+    handled = ww.process_pending(store, cameras, describer, memory, watch, time.time(), settings)
     if handled:
         log.info('pass done: handled %s in %.2f s' % (', '.join(handled), time.time() - started))
     return handled
@@ -129,18 +135,20 @@ def main(argv):
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
     cameras = Timed(cam.Cameras(WORK_DIR, config['camera_name'], config['rotate_180'],
                                 config['dark_below']), 'camera')
-    describer = Timed(Describer(WORK_DIR), 'describe')
+    describer = Timed(Describer(WORK_DIR, config['models']), 'describe')
     memory = Memory()
+    watch = Watch(csv_path=TIMINGS_PATH)
+    settings = {'models': config['models'], 'default_model': config['default_model']}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
     if args.once:
         if args.wait and not wait_for_request(store, args.wait):
             log.info('no request within %.0f s' % args.wait)
             return 0
-        pass_once(store, cameras, describer, memory)
+        pass_once(store, cameras, describer, memory, watch, settings)
         return 0
     while True:
-        pass_once(store, cameras, describer, memory)
+        pass_once(store, cameras, describer, memory, watch, settings)
         time.sleep(POLL_SECONDS)
 
 

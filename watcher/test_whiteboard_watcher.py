@@ -6,10 +6,13 @@ Run: cd watcher && python3 -m unittest -v test_whiteboard_watcher
 import unittest
 
 import whiteboard_watcher as ww
+from stopwatch import MARKER, Watch
 
 NOW = 1000000
 VALID = 'request: "0003"\n'
 YES = 'whiteboard: yes\n## Text\nHELLO'
+MODELS = {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'}
+SETTINGS = {'models': MODELS, 'default_model': 'haiku'}
 
 
 class FakeStore(object):
@@ -60,6 +63,7 @@ class FakeCameras(object):
         self.plan = plan or {}
         self.list_error = list_error
         self.captures = []
+        self.last = {}
 
     def list(self):
         if self.list_error:
@@ -68,6 +72,7 @@ class FakeCameras(object):
 
     def capture(self, index):
         self.captures.append(index)
+        self.last = {'photo_s': 0.5, 'brightness': 120.0, 'brightness_s': 0.1}
         result = self.plan.get(index, b'photo-%d' % index)
         if isinstance(result, str):
             raise ww.CameraError(result)
@@ -75,15 +80,17 @@ class FakeCameras(object):
 
 
 class FakeDescriber(object):
-    """Answers per photo. `answers[photo]` is the text, or an error message to raise."""
+    """Answers per photo. `answers[photo]` is the text, or 'ERR:...' to raise."""
 
     def __init__(self, answers=None, default=YES):
         self.answers = answers or {}
         self.default = default
-        self.calls = []
+        self.calls = []    # photos
+        self.fields = []   # fields per call
 
     def describe(self, photo, fields):
         self.calls.append(photo)
+        self.fields.append(dict(fields))
         answer = self.answers.get(photo, self.default)
         if answer.startswith('ERR:'):
             raise ww.DescribeError(answer[4:])
@@ -105,42 +112,53 @@ class FakeMemory(object):
 
 class ParseRequestTests(unittest.TestCase):
 
-    def test_minimal_request(self):
-        self.assertEqual(ww.parse_request(VALID, '0003'), {'request': '0003'})
+    def parse(self, text, number='0003'):
+        return ww.parse_request(text, number, MODELS, 'haiku')
+
+    def test_minimal_request_gets_default_model(self):
+        self.assertEqual(self.parse(VALID), {'request': '0003', 'model': 'haiku'})
 
     def test_all_fields_and_blank_and_comment_lines(self):
         text = ('# note\n\nrequest: "0003"\nmarker_color: red\n'
                 "region_v: 'top'\nregion_h: left\nmode: snapshot\n")
-        fields = ww.parse_request(text, '0003')
+        fields = self.parse(text)
         self.assertEqual(fields['marker_color'], 'red')
         self.assertEqual(fields['region_v'], 'top')
         self.assertEqual(fields['region_h'], 'left')
         self.assertEqual(fields['mode'], 'snapshot')
 
+    def test_model_field_is_taken_when_allowed(self):
+        self.assertEqual(self.parse(VALID + 'model: sonnet\n')['model'], 'sonnet')
+
+    def test_model_not_in_config_rejected_with_allowed_list(self):
+        with self.assertRaises(ww.RequestError) as ctx:
+            self.parse(VALID + 'model: gpt\n')
+        self.assertIn('allowed: haiku, opus, sonnet', str(ctx.exception))
+
     def test_unknown_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            ww.parse_request(VALID + 'colour: red\n', '0003')
+            self.parse(VALID + 'colour: red\n')
 
     def test_invalid_value_rejected(self):
         with self.assertRaises(ww.RequestError):
-            ww.parse_request(VALID + 'marker_color: pink\n', '0003')
+            self.parse(VALID + 'marker_color: pink\n')
 
     def test_request_number_must_match_file_name(self):
         with self.assertRaises(ww.RequestError):
-            ww.parse_request(VALID, '0004')
+            self.parse(VALID, '0004')
 
     def test_missing_request_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            ww.parse_request('mode: snapshot\n', '0003')
+            self.parse('mode: snapshot\n')
 
     def test_duplicate_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            ww.parse_request(VALID + 'mode: snapshot\nmode: diff\n', '0003')
+            self.parse(VALID + 'mode: snapshot\nmode: diff\n')
 
     def test_line_that_is_not_name_value_rejected(self):
         for bad in ['- red\n', 'marker_color:\n', 'nested:\n  a: b\n']:
             with self.assertRaises(ww.RequestError):
-                ww.parse_request(VALID + bad, '0003')
+                self.parse(VALID + bad)
 
 
 class SplitAnswerTests(unittest.TestCase):
@@ -181,12 +199,17 @@ class CameraOrderTests(unittest.TestCase):
 
 class ProcessTests(unittest.TestCase):
 
-    def run_one(self, store, cameras=None, describer=None, memory=None):
+    def run_one(self, store, cameras=None, describer=None, memory=None, settings=SETTINGS):
         cameras = cameras or FakeCameras()
         describer = describer or FakeDescriber()
         memory = memory or FakeMemory()
-        handled = ww.process_pending(store, cameras, describer, memory, now=NOW)
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        handled = ww.process_pending(store, cameras, describer, memory, watch, NOW, settings)
+        self.watch = watch
         return handled, cameras, describer, memory
+
+    def description(self, store, number='0003'):
+        return store.text('/Descriptions/description-%s.md' % number)
 
     def test_remembered_camera_works_with_exactly_one_photo(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -196,7 +219,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(cameras.captures, [1])
         self.assertEqual(len(describer.calls), 1)
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertTrue(desc.startswith('status: ok\n'))
         self.assertNotIn('whiteboard:', desc)
         self.assertIn('HELLO', desc)
@@ -211,10 +234,9 @@ class ProcessTests(unittest.TestCase):
 
     def test_remembered_wrong_then_second_camera_works(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        cameras = FakeCameras([0, 1], plan={})
         describer = FakeDescriber(answers={b'photo-1': 'whiteboard: no\nroom'})
         handled, cameras, _, memory = self.run_one(
-            store, cameras, describer, FakeMemory(1))
+            store, FakeCameras([0, 1]), describer, FakeMemory(1))
         self.assertEqual(handled, ['0003'])
         self.assertEqual(cameras.captures, [1, 0])
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-0')
@@ -232,10 +254,9 @@ class ProcessTests(unittest.TestCase):
     def test_all_cameras_fail_writes_one_error_with_a_line_per_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
         cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)', 1: 'no frame'})
-        describer = FakeDescriber(default='whiteboard: no\nroom')
-        self.run_one(store, cameras, describer)
+        self.run_one(store, cameras, FakeDescriber(default='whiteboard: no\nroom'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertTrue(desc.startswith('status: error\n'))
         self.assertIn('reason: camera 0: dark, closed lid (mean 2)', desc)
         self.assertIn('reason: camera 1: no frame', desc)
@@ -243,17 +264,14 @@ class ProcessTests(unittest.TestCase):
 
     def test_not_a_whiteboard_on_every_camera_is_an_error_without_image(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='whiteboard: no')
-        self.run_one(store, FakeCameras([0, 1]), describer)
+        self.run_one(store, FakeCameras([0, 1]), FakeDescriber(default='whiteboard: no'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
-        self.assertIn('reason: camera 0: not a whiteboard',
-                      store.text('/Descriptions/description-0003.md'))
+        self.assertIn('reason: camera 0: not a whiteboard', self.description(store))
 
     def test_describe_without_whiteboard_line_counts_as_failure(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='a whiteboard with text')
-        self.run_one(store, FakeCameras([0]), describer)
-        desc = store.text('/Descriptions/description-0003.md')
+        self.run_one(store, FakeCameras([0]), FakeDescriber(default='a whiteboard with text'))
+        desc = self.description(store)
         self.assertIn('status: error', desc)
         self.assertIn('describe: answer did not start with a whiteboard line', desc)
 
@@ -274,13 +292,12 @@ class ProcessTests(unittest.TestCase):
     def test_single_camera_fails_gives_error(self):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store, FakeCameras([4], plan={4: 'no frame'}))
-        self.assertIn('reason: camera 4: no frame', store.text('/Descriptions/description-0003.md'))
+        self.assertIn('reason: camera 4: no frame', self.description(store))
 
     def test_no_camera_listed_gives_error(self):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store, FakeCameras(list_error='ffmpeg lists no camera'))
-        self.assertIn('reason: camera: ffmpeg lists no camera',
-                      store.text('/Descriptions/description-0003.md'))
+        self.assertIn('reason: camera: ffmpeg lists no camera', self.description(store))
 
     def test_each_camera_tried_at_most_once_no_loop(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -316,7 +333,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(handled, [])
         self.assertEqual(cameras.captures, [])
         self.assertEqual(describer.calls, [])
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertTrue(desc.startswith('status: error\n'))
         self.assertIn('reason: interrupted before the description was written', desc)
 
@@ -327,7 +344,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(cameras.captures, [])
         self.assertEqual(describer.calls, [])
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertTrue(desc.startswith('status: error\n'))
         self.assertIn('reason: expired', desc)
 
@@ -342,7 +359,7 @@ class ProcessTests(unittest.TestCase):
         store.mtimes['/Requests/request-0003.yaml'] = NOW - 5
         handled, _, _, _ = self.run_one(store)
         self.assertEqual(handled, ['0003'])
-        self.assertIn('reason: expired', store.text('/Descriptions/description-0002.md'))
+        self.assertIn('reason: expired', self.description(store, '0002'))
 
     def test_already_described_request_is_skipped(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -356,9 +373,29 @@ class ProcessTests(unittest.TestCase):
         handled, cameras, describer, _ = self.run_one(store)
         self.assertEqual(cameras.captures, [])
         self.assertEqual(describer.calls, [])
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertIn('status: error', desc)
         self.assertIn('marker_color', desc)
+
+    def test_bad_model_writes_error_naming_allowed_values_and_takes_no_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'model: gpt\n'})
+        _, cameras, describer, _ = self.run_one(store)
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        desc = self.description(store)
+        self.assertTrue(desc.startswith('status: error\n'))
+        self.assertIn('allowed: haiku, opus, sonnet', desc)
+
+    def test_model_from_request_is_passed_to_describe(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'model: sonnet\n'})
+        _, _, describer, _ = self.run_one(store)
+        self.assertEqual(describer.fields[0]['model'], 'sonnet')
+        self.assertIn('fields: model=sonnet', self.description(store))
+
+    def test_default_model_is_used_when_request_has_none(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        _, _, describer, _ = self.run_one(store)
+        self.assertEqual(describer.fields[0]['model'], 'haiku')
 
     def test_oldest_request_first(self):
         store = FakeStore({'request-0007.yaml': 'request: "0007"\n',
@@ -376,9 +413,45 @@ class ProcessTests(unittest.TestCase):
     def test_mode_diff_is_described_as_snapshot_with_note(self):
         store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})
         self.run_one(store)
-        desc = store.text('/Descriptions/description-0003.md')
+        desc = self.description(store)
         self.assertIn('status: ok', desc)
         self.assertIn('mode diff is not supported yet', desc)
+
+    def test_ok_description_ends_with_timing_block_and_no_final_upload_time(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_one(store)
+        desc = self.description(store)
+        self.assertIn('\n' + MARKER + '\n', desc)
+        block = desc.split(MARKER + '\n', 1)[1]
+        self.assertIn('machine: test-mac', block)
+        self.assertIn('model: haiku', block)
+        self.assertIn('camera 0: ok', block)
+        self.assertIn('total before description upload', block)
+        self.assertNotIn('\ndescription upload:', '\n' + block)
+        self.assertNotIn('HELLO', block)  # no whiteboard content in the block
+
+    def test_error_description_also_has_timing_block(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'model: gpt\n'})
+        self.run_one(store)
+        self.assertIn(MARKER, self.description(store))
+
+    def test_one_row_per_request_with_outcome_and_tries(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)'})
+        self.run_one(store, cameras)
+        self.assertEqual(len(self.watch.rows), 1)
+        row = self.watch.rows[0]
+        self.assertEqual(row['request'], '0003')
+        self.assertEqual(row['outcome'], 'ok')
+        self.assertEqual(row['model'], 'haiku')
+        self.assertIn('0:dark, closed lid (mean 2)', row['tries'])
+        self.assertIn('1:ok', row['tries'])
+        self.assertNotIn('HELLO', str(row))
+
+    def test_detection_is_time_since_dropbox_saw_the_request(self):
+        store = FakeStore({'request-0003.yaml': VALID}, age=7)
+        self.run_one(store)
+        self.assertEqual(self.watch.rows[0]['detect_s'], '7.00')
 
 
 if __name__ == '__main__':

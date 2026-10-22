@@ -12,7 +12,6 @@ import subprocess
 from whiteboard_watcher import DescribeError
 
 CLAUDE = 'claude'
-MODEL = 'sonnet'      # fastest model that read the board correctly (scratch test)
 TIMEOUT = 120         # hard limit per run, seconds
 PHOTO_NAME = 'describe-photo.jpg'
 
@@ -35,10 +34,10 @@ def build_prompt(fields):
 
 class Describer(object):
 
-    def __init__(self, folder, model=MODEL, timeout=TIMEOUT, run=subprocess.run,
-                 environ=None):
+    def __init__(self, folder, models, timeout=TIMEOUT, run=subprocess.run, environ=None):
+        """`models` maps the short names from the config file to model IDs."""
         self.folder = folder
-        self.model = model
+        self.models = models
         self.timeout = timeout
         self.run = run
         self.environ = dict(os.environ if environ is None else environ)
@@ -51,7 +50,8 @@ class Describer(object):
             handle.write(photo)
         env = dict(self.environ)
         env.pop('ANTHROPIC_API_KEY', None)
-        cmd = [CLAUDE, '-p', build_prompt(fields), '--model', self.model,
+        model = self.models[fields['model']]
+        cmd = [CLAUDE, '-p', build_prompt(fields), '--model', model,
                '--allowedTools', 'Read', '--add-dir', self.folder,
                '--output-format', 'json']
         try:

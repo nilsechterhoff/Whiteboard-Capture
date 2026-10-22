@@ -45,6 +45,8 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 4 | MVP B watcher config (Dropbox keys, camera settings) | `~/Library/Application Support/whiteboard-watcher/config.json` (mode 600) |
 | 5 | MVP B last working camera (hint only) | `~/Library/Application Support/whiteboard-watcher/last_camera.json` |
 | 6 | MVP B watcher log | `~/Library/Logs/whiteboard-watcher.log` |
+| 7 | MVP B timing log (one row per request, no whiteboard content) | `~/Library/Logs/whiteboard-watcher-timings.csv` |
+| 8 | MVP B background service (after your yes) | `~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist` and `~/Library/Logs/whiteboard-watcher.launchd.log`. Install: `python3 watcher/setup_dropbox.py --service`. Remove: `python3 watcher/setup_dropbox.py --uninstall` |
 | 4 | Lessons and camera facts (old camera branch) | [project/lessons-and-camera-facts.md](project/lessons-and-camera-facts.md) |
 
 Images are **not** in Git (ADR-0004). The repo is **not** in `~/Documents`: macOS blocks the launchd service from reading files there.
