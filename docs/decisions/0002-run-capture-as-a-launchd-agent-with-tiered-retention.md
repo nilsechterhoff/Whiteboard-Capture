@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by ADR-0007"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -70,3 +70,4 @@ Tiers: `latest.jpg` every 10 s; `hourly/` first frame per hour, keep 12; `daily/
 * Source: [handoff 2026-10-12](../handoff-2026-10-12.md), section 7.
 * Session mode (`session.on`, change-only captures) and image correction (OpenCV) are deferred to the backlog.
 * Accepted by Nils Echterhoff on 2026-10-12.
+* Superseded by ADR-0007 on 2026-10-22 (status change only; the decision text above is unchanged).

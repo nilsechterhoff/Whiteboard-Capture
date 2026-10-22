@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-22
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -91,6 +91,7 @@ Tested on 2026-10-22 (voice side only): read a Dropbox file, created `request-00
 ## More Information
 
 * Decided in a voice session with Nils on 2026-10-22.
-* **Supersedes** (once accepted): ADR-0002 (timed launchd capture), ADR-0003 (shared folder and trigger file in Nextcloud), ADR-0005 (20 s interval). The status of those ADRs changes to "superseded by ADR-0007" only when Nils accepts this one.
+* **Supersedes:** ADR-0002 (timed launchd capture), ADR-0003 (shared folder and trigger file in Nextcloud), ADR-0005 (20 s interval). Their status changed to "superseded by ADR-0007" when Nils accepted this ADR.
 * **Not decided here:** where raw photos are kept (ADR-0004's rule "no images in Git" stays), and the camera (ADR-0001 named the A70; Nils now has a new camera that works).
 * Related: ADR-0006.
+* Accepted by Nils Echterhoff on 2026-10-22.

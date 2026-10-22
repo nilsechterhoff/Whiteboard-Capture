@@ -22,7 +22,7 @@ Never commit captured images to Git (ADR-0004).
 
 ## Current main path
 
-MVP B (Dropbox request/description loop, on demand) is the main path since 2026-10-22: see [project/mvp-alternatives.md](project/mvp-alternatives.md) and ADR-0006/0007 (`proposed`). The voice agent's rules live in `Whiteboard/instructions.md` in Dropbox. The procedure below belongs to the earlier timed pipeline (parked).
+MVP B (Dropbox request/description loop, on demand) is the main path since 2026-10-22: see [project/mvp-alternatives.md](project/mvp-alternatives.md) and ADR-0006/0007 (`accepted`). The voice agent's rules live in `Whiteboard/instructions.md` in Dropbox. The procedure below belongs to the earlier timed pipeline (parked).
 
 ## Reading the whiteboard (agent procedure, earlier timed pipeline)
 

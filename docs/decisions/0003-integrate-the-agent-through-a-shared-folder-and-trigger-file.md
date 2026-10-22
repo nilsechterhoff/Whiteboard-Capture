@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by ADR-0007"
 date: 2026-10-12
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -61,3 +61,4 @@ With the folder connected: the agent writes `capture.request`, the file disappea
 * Source: [handoff 2026-10-12](../handoff-2026-10-12.md), section 8.
 * Agent procedure: `CLAUDE.md`, "Reading the whiteboard".
 * Accepted by Nils Echterhoff on 2026-10-12.
+* Superseded by ADR-0007 on 2026-10-22 (status change only; the decision text above is unchanged).

@@ -4,7 +4,7 @@
 |---|---|---|
 | 1 | Created | 2026-10-22 12:06 (Europe/Copenhagen) |
 | 2 | Last updated | 2026-10-22 13:50 |
-| 3 | **Current main path** | **MVP B** (Dropbox request/description loop), see [ADR-0006](../docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) and [ADR-0007](../docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) (both `proposed`) |
+| 3 | **Current main path** | **MVP B** (Dropbox request/description loop), see [ADR-0006](../docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) and [ADR-0007](../docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) (both `accepted`, 2026-10-22) |
 | 4 | Status | MVP B: voice side built and partly tested; image agent and trigger **not built** |
 | 5 | Maintained by | Claude, for Nils |
 

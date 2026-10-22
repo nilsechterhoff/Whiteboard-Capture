@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-22
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -64,3 +64,4 @@ Nils asks in voice mode about a freshly drawn element and the answer matches the
 
 * Tests by Nils on 2026-10-21 and 2026-10-22; details in [project/mvp-alternatives.md](../../project/mvp-alternatives.md).
 * Related: ADR-0007 (how request and description travel).
+* Accepted by Nils Echterhoff on 2026-10-22.

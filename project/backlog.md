@@ -22,6 +22,6 @@ Tasks and open ideas (not decisions; decisions go to `docs/decisions/` per STD-0
 | 16 | BL-016 | **MVP B:** build the image agent: one photo, one description, one `description-NNNN.md` (start with a manual run on `request-0002.txt`); verify headless Claude Code with images on the subscription | Claude Code + Nils | Open (main path) |
 | 17 | BL-017 | **MVP B:** build the Mac watcher: new `request-*.txt` in the local Dropbox folder starts the image agent (the "gap") | Claude Code + Nils | Open (main path) |
 | 18 | BL-018 | **MVP B:** measure request-to-description delay end to end; tune the 10 s count | Nils + Claude | Open |
-| 19 | BL-019 | Review and accept ADR-0006 and ADR-0007; on acceptance mark ADR-0002, ADR-0003, ADR-0005 as superseded by ADR-0007 | Nils | Open |
+| 19 | BL-019 | Review and accept ADR-0006 and ADR-0007; on acceptance mark ADR-0002, ADR-0003, ADR-0005 as superseded by ADR-0007 | Nils | Done (2026-10-22) |
 | 20 | BL-020 | Decide the camera (ADR-0001 names the A70; new camera works) and where raw photos are kept → ADR | Nils + Claude | Open |
 | 21 | BL-021 | MVP B: `mode: diff` (compare with previous request) | – | Idea (placeholder in request format) |
