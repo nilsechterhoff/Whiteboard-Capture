@@ -19,6 +19,7 @@ Nils brainstorms at a 120 × 90 cm whiteboard in Claude's **live voice mode** (h
 | 5 | `project/backlog.md` | BL-016, BL-017, BL-018, BL-022 to BL-024 |
 | 6 | `project/handover/handoff-2026-10-13.md` | Earlier camera lessons, Mac environment (older timed pipeline, mostly parked) |
 | 7 | `script/wbcapture.sh`, `script/tests/` | Old capture loop and its stub-based test style (reuse ideas, not the design) |
+| 8 | `project/lessons-and-camera-facts.md` | **Camera facts** (Logitech C930e) and dead ends; each row marked Repo, Chat or Guess. The old camera branch is preserved as the git tag `archive/open-camera-a70`: **do not reuse its code**, read it only if stuck |
 
 ## 3. Rules from Nils (follow them)
 
@@ -35,6 +36,7 @@ Nils brainstorms at a 120 × 90 cm whiteboard in Claude's **live voice mode** (h
 | 9 | Never commit images, tokens, app key or secret. Never print or log secrets. Nils must not paste secrets into chat |
 | 10 | Nils has ADHD: short answers, tables with a "Line #" column, numbered items, at most 5 sentences, key terms in bold. Pure shell commands for his Terminal, no English mixed in |
 | 11 | Reliability before cleverness: Nils cannot afford debugging rounds this week. Test first (stubs), then real |
+| 12 | The `gh` CLI is **not installed** on Nils's Mac. For a pull request, push the branch and give Nils the compare link, or ask him before installing anything |
 
 ## 4. Architecture (decided in ADR-0008)
 
@@ -104,7 +106,7 @@ The describe step **only describes**; the voice agent interprets. Honor `marker_
 | 2 | **Tests first with stubs:** fake Dropbox client, fake camera, fake describer. Cover: new request, already-described request skipped, camera failure, describe failure, half-written files never visible, invalid YAML | Tests pass on Mac (and Linux if possible) |
 | 3 | **Setup script:** Dropbox OAuth2 code flow with `token_access_type=offline`. Nils enters app key and secret with hidden input (`getpass`); the script prints the authorization URL, Nils pastes the code, the script exchanges it for a refresh token and stores key, secret and refresh token in a config file with mode `600`. Ask Nils where. Never echo secrets. Check by listing the app folder root | Authorization works; `/Apps/Whiteboard-Capture/` exists |
 | 4 | Tell Nils to move `/Whiteboard` content into the app folder; wait for confirmation | Folder structure in place |
-| 5 | **Camera function** with a hard time limit (Mac: `imagesnap`, camera name from `imagesnap -l`, ask Nils which one is the new camera). Keep the function small so a Windows version (`ffmpeg`) can replace it later | One photo saved locally |
+| 5 | **Camera function** with a hard time limit. The camera is expected to be the **Logitech C930e** (listed as "Logitech Webcam C930e", **verify** with `imagesnap -l` or `ffmpeg -f avfoundation -list_devices true -i ""`; do not select by serial number). One photo on demand: try `imagesnap` first; `ffmpeg ... -frames:v 1` is an **untested guess**. ffmpeg needs its own camera permission (tell Nils what to click; do not change settings yourself). Keep the function small so a Windows version (`ffmpeg`) can replace it later | One photo saved locally |
 | 6 | **Describe step:** headless Claude Code (`claude -p`) with the photo and the request fields. **Verify first** that it can take an image as input and runs on Nils's subscription without an API key. If not, **stop and ask Nils**; do not switch to an API key on your own | A real description of a real photo |
 | 7 | **Manual end-to-end run** on one request (Nils decides which), without the service. Then Nils tests in voice mode that the description is read and used | Voice agent answers from the description |
 | 8 | **Watcher as a background service** (Mac: launchd; ask Nils for locations; log file; single-instance lock). Camera permission for a background service is **unverified**: test it | Request in voice mode → description appears without manual steps |
@@ -135,7 +137,7 @@ If the camera or describe step fails, the watcher still writes `description-NNNN
 
 | Line # | Point |
 |---|---|
-| 1 | Which camera and its listed name |
+| 1 | Confirm the camera (C930e expected) and its exact listed name |
 | 2 | Where to store config, credentials, logs, virtual environment |
 | 3 | Convert `request-0002.txt` to YAML for the first run? |
 | 4 | Failure handling proposal (section 8) |
