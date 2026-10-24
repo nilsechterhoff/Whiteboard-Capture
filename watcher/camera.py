@@ -19,9 +19,6 @@ CAPTURE_TIMEOUT = 25
 BRIGHTNESS_TIMEOUT = 10
 FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
 SIZE = '1920x1080'
-FPS = 2             # frames per second while warming up
-WARMUP_FRAMES = 3   # first 1.5 s at 2 fps: discarded (exposure settles, black first frames)
-FRAMES = WARMUP_FRAMES + 1  # the next frame (about 2 s after start) is the photo
 DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
 DEVICE = re.compile(r'\[(\d+)\] (.+)$')
 NOT_CAMERAS = ('Capture screen',)  # screen recording is not a camera
@@ -78,19 +75,18 @@ def mean_brightness(path, run=subprocess.run):
 def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.run, timing=None):
     """One photo from camera `index` as JPEG bytes. Raises CameraError.
 
-    Frames go to `folder` (created by the caller) and are deleted again.
+    The first frame is the photo (no warm-up: a working camera is bright from the start).
+    The frame goes to `folder` (created by the caller) and is deleted again.
     `timing` (a dict, optional) gets photo_s, brightness_s and brightness, also when
     the frame is rejected.
     """
     timing = {} if timing is None else timing
-    pattern = os.path.join(folder, 'frame-%d-%%d.jpg' % index)
-    filters = ['hflip', 'vflip'] if rotate else []
-    filters.append('fps=%d' % FPS)
+    last = os.path.join(folder, 'frame-%d.jpg' % index)
     cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
-           '-framerate', FRAMERATE, '-video_size', SIZE,
-           '-i', '%d:none' % index, '-vf', ','.join(filters),
-           '-frames:v', str(FRAMES), '-y', pattern]
-    last = pattern % FRAMES
+           '-framerate', FRAMERATE, '-video_size', SIZE, '-i', '%d:none' % index]
+    if rotate:
+        cmd += ['-vf', 'hflip,vflip']
+    cmd += ['-frames:v', '1', '-y', last]
     try:
         started = time.time()
         try:
@@ -111,11 +107,10 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
         with open(last, 'rb') as handle:
             return handle.read()
     finally:
-        for frame in range(1, FRAMES + 1):
-            try:
-                os.remove(pattern % frame)
-            except OSError:
-                pass
+        try:
+            os.remove(last)
+        except OSError:
+            pass
 
 
 def load_last(path):

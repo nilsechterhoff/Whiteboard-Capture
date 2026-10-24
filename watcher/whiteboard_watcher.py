@@ -144,18 +144,21 @@ def fail(store, watch, number, reasons):
     watch.finish('error', upload_s)
 
 
+REOPENS = 2  # after a dark frame: close, reopen at once, up to this many times
+
+
 def capture_once_or_retry_dark(cameras, watch, index):
-    """One photo from `index`. A dark frame is retried once (the retry warms up again).
-    Returns (photo, None) or (None, error). Every try goes to the timing block.
+    """One photo from `index`. A dark frame makes the camera be reopened at once, up to
+    REOPENS times. Returns (photo, None) or (None, error). Every try goes to the timing block.
     """
     error = None
-    for attempt in (1, 2):
+    for attempt in range(REOPENS + 1):
         try:
             return cameras.capture(index), None
         except CameraError as err:
             info = dict(getattr(cameras, 'last', {}))
-            watch.camera_try(index, err if attempt == 1 else 'retry: %s' % err,
-                             info.get('photo_s'), info.get('brightness'))
+            label = err if attempt == 0 else 'reopen %d: %s' % (attempt, err)
+            watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'))
             error = err
             if not isinstance(err, DarkFrameError):
                 break
@@ -234,7 +237,10 @@ def process_pending(store, cameras, describer, memory, watch, now, settings,
     is simply tried again on the next run.
     """
     handled = []
-    names = sorted(n for n in store.list_names('/Requests') if REQUEST_NAME.match(n))
+    try:
+        names = sorted(n for n in store.list_names('/Requests') if REQUEST_NAME.match(n))
+    except OSError:
+        return handled  # no network: try again on the next pass, the service keeps running
     for name in names:
         number = REQUEST_NAME.match(name).group(1)
         if store.exists(description_path(number)):
