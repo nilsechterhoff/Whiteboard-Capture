@@ -497,6 +497,20 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(cameras.captures, [0, 0, 0])
         self.assertIn('reason: camera 0: dark, closed lid (mean 3)', self.description(store))
 
+    def test_network_error_on_the_description_check_does_not_raise(self):
+        store = FakeStore({'request-0003.yaml': VALID, 'request-0004.yaml': 'request: "0004"\n'})
+        real_exists = store.exists
+
+        def flaky(path):
+            if path.startswith('/Descriptions/description-0003'):
+                raise OSError('no connection to Dropbox (URLError)')
+            return real_exists(path)
+        store.exists = flaky
+        cameras = FakeCameras([0])
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, NOW, SETTINGS)
+        self.assertEqual(handled, ['0004'])
+
     def test_network_error_on_listing_requests_does_not_raise(self):
         store = FakeStore({'request-0003.yaml': VALID})
 

@@ -243,9 +243,9 @@ def process_pending(store, cameras, describer, memory, watch, now, settings,
         return handled  # no network: try again on the next pass, the service keeps running
     for name in names:
         number = REQUEST_NAME.match(name).group(1)
-        if store.exists(description_path(number)):
-            continue
         try:
+            if store.exists(description_path(number)):
+                continue
             modified = store.modified(request_path(name))
             watch.begin(number, now - modified)
             if store.exists(image_path(number)):
