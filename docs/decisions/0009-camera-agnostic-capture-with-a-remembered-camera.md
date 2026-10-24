@@ -35,8 +35,8 @@ The rules:
 
 1. List the video devices with ffmpeg (avfoundation). An optional config setting `camera_name` filters by name (set to "Logitech" now). Empty means all cameras count. Screen capture is not a camera and is ignored.
 2. Keep the index of the last camera that showed the whiteboard in `last_camera.json` (config folder). It is only a hint: it is tried first, and it is never trusted blindly.
-3. Per request: try the remembered camera first, then the others in listing order. Each camera at most once per request, plus one retry after a dark frame.
-4. Per try: take the photo, rotate 180° (config, default true), warm up (the first 1.5 s are discarded), then check brightness. A near-black frame (closed lid) is a dark frame: it is retried once after the warm-up, then the next camera.
+3. Per request: try the remembered camera first, then the others in listing order. Each camera is tried once per request; after a dark frame the same camera is reopened at once, up to 2 times, before the next camera.
+4. Per try: take the first frame (no warm-up), rotate 180° (config, default true), then check brightness. A near-black frame is a dark frame: the camera is closed and reopened at once, up to 2 reopens per camera, then the next camera. Measured: a working camera is bright at the first frame, and a dark start stays dark for about 10 s but is fixed by reopening.
 5. The describe step must start its answer with `whiteboard: yes` or `whiteboard: no`. `no` moves on to the next camera. `yes` saves that camera as the last working one and writes the description.
 6. If all cameras fail: one description with `status: error` and one reason line per camera.
 7. Only the image of the successful camera is uploaded.
@@ -49,10 +49,27 @@ With `camera_name` empty, the code is the same and works for any camera set. The
 * Good, because a wrong camera gives a rejected try, not a wrong photo: the describe step has to answer `whiteboard: yes`.
 * Good, because the remembered camera is usually first, so most requests need one photo.
 * Bad, because every camera that is tried costs time (a dark try takes about 6 s, a camera that hangs takes the 25 s limit).
-* Bad, because the first frame after a start is often dark. The warm-up and the retry cost about 1 to 2 s on a good first try (measured below).
+* Bad, because a dark start costs one or two reopens (about 5 to 7 s each) before the picture is bright (measured below).
 * Neutral, because the `Logitech` filter is a config setting, so the set of cameras can change without a code change.
 
 ### Confirmation
+
+Fresh plug, 2026-10-24, before the reopen change (request 0012, warm-up version, both cameras reconnected): first try of camera 1 dark (brightness 0.8, photo 6.4 s), retry bright (127.1, photo 4.4 s, describe 11.4 s), total before the description upload 26.6 s, request to description file 35.6 s.
+
+Cold and warm test, 2026-10-23 (service paused, 5 minutes idle before each cold run, frames every 0.5 s for 10 s, mean brightness per frame):
+
+| Line # | Run | Brightness at 0 s | At 10 s | First at or above 20 | Stable (under 5 % change for 1.5 s) |
+|---|---|---|---|---|---|
+| 1 | Camera 1, cold 1 | 9 | 9 | never in 10 s | never |
+| 2 | Camera 1, cold 2 | 7 | 8 | never in 10 s | never |
+| 3 | Camera 1, cold 3 | 134 | 139 | 0.0 s | 0.5 s |
+| 4 | Camera 1, warm | 142 | 138 | 0.0 s | 0.5 s |
+| 5 | Camera 0, cold 1 to 3 and warm | 128 to 136 | 136 to 137 | 0.0 s in all four | 0.5 s in all four |
+
+Real requests on the service after the reopen change, 2026-10-24, 10 minutes idle between them (requests 0013 to 0015): each first try dark (brightness 0.6 to 0.8), the one reopen bright (124.5 to 130.0), all status ok. Total before the description upload 22.3 to 22.4 s; request to description file 34.6, 33.9 and 33.0 s.
+
+Camera 1 was dark for the whole 10 s in 2 of 4 runs. Its dark frames have no room or board structure, which fits a covered lens or a dark scene; the frames alone cannot tell which. Camera 0 was never dark in these runs.
+
 
 Measured on the Mac, launchd service, 2026-10-23, three real requests with 10 minutes idle between them (requests 0009 to 0011):
 
