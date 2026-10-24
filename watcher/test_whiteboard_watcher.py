@@ -74,6 +74,10 @@ class FakeCameras(object):
         self.captures.append(index)
         self.last = {'photo_s': 0.5, 'brightness': 120.0, 'brightness_s': 0.1}
         result = self.plan.get(index, b'photo-%d' % index)
+        if isinstance(result, list):
+            result = result.pop(0)  # a sequence of results: one per call
+        if isinstance(result, str) and result.startswith('DARK:'):
+            raise ww.DarkFrameError(result[5:])
         if isinstance(result, str):
             raise ww.CameraError(result)
         return result
@@ -452,6 +456,78 @@ class ProcessTests(unittest.TestCase):
         store = FakeStore({'request-0003.yaml': VALID}, age=7)
         self.run_one(store)
         self.assertEqual(self.watch.rows[0]['detect_s'], '7.00')
+
+    def test_dark_then_bright_after_reopen_uses_the_reopen(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0], plan={0: ['DARK:mean 1', b'photo-retry']})
+        handled, cameras, describer, _ = self.run_one(store, cameras)
+        self.assertEqual(handled, ['0003'])
+        self.assertEqual(cameras.captures, [0, 0])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-retry')
+        self.assertEqual(self.watch.rows[0]['outcome'], 'ok')
+        self.assertIn('0:mean 1', self.watch.rows[0]['tries'])
+        self.assertIn('0:ok', self.watch.rows[0]['tries'])
+
+    def test_bright_first_frame_is_one_capture_no_reopen(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1])
+        _, cameras, _, _ = self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0])
+        self.assertEqual(self.watch.rows[0]['tries'], '0:ok:0.50:120.0:0.00')
+
+    def test_dark_three_times_moves_on_to_the_next_camera(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: ['DARK:mean 1', 'DARK:mean 2', 'DARK:mean 3']})
+        _, cameras, _, _ = self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 0, 0, 1])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
+
+    def test_dark_after_two_reopens_is_not_tried_a_fourth_time(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0], plan={0: ['DARK:mean 1', 'DARK:mean 2', 'DARK:mean 3']})
+        self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 0, 0])
+
+    def test_dark_on_every_try_gives_error_with_the_last_reason(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0], plan={0: ['DARK:dark, closed lid (mean 1)',
+                                             'DARK:dark, closed lid (mean 2)',
+                                             'DARK:dark, closed lid (mean 3)']})
+        self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 0, 0])
+        self.assertIn('reason: camera 0: dark, closed lid (mean 3)', self.description(store))
+
+    def test_network_error_on_the_description_check_does_not_raise(self):
+        store = FakeStore({'request-0003.yaml': VALID, 'request-0004.yaml': 'request: "0004"\n'})
+        real_exists = store.exists
+
+        def flaky(path):
+            if path.startswith('/Descriptions/description-0003'):
+                raise OSError('no connection to Dropbox (URLError)')
+            return real_exists(path)
+        store.exists = flaky
+        cameras = FakeCameras([0])
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, NOW, SETTINGS)
+        self.assertEqual(handled, ['0004'])
+
+    def test_network_error_on_listing_requests_does_not_raise(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+
+        def down(folder):
+            raise OSError('no connection to Dropbox (timeout)')
+        store.list_names = down
+        cameras = FakeCameras([0])
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, NOW, SETTINGS)
+        self.assertEqual(handled, [])
+        self.assertEqual(cameras.captures, [])
+
+    def test_other_camera_error_is_not_retried(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        cameras = FakeCameras([0, 1], plan={0: 'no frame'})
+        _, cameras, _, _ = self.run_one(store, cameras)
+        self.assertEqual(cameras.captures, [0, 1])
 
 
 if __name__ == '__main__':

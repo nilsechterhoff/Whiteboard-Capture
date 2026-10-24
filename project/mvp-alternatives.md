@@ -107,7 +107,7 @@ Design choices:
 | Line # | Item | Value |
 |---|---|---|
 | 1 | Timing log (one row per request) | `~/Library/Logs/whiteboard-watcher-timings.csv`. Columns: when, request, machine, model, outcome, detect_s, camera_list_s, tries (`index:result:photo_s:brightness:describe_s`), image_upload_s, describe_upload_s, total_s. No whiteboard content |
-| 2 | Voice check window | First check at 10 s after the request, then every 5 s until 40 s |
+| 2 | Voice check window | First check at 10 s, then every 5 s until 40 s |
 | 3 | `instructions.md` (Dropbox) | Updated by Claude in the chat, not by the watcher and not by Nils's script. It holds the marker rule and the `model` field |
 
 ### Where the rules live
@@ -133,7 +133,7 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 | Line # | Piece | Note |
 |---|---|---|
 | 1 | Setup script | One-time Dropbox authorization, stores the refresh token (BL-022) |
-| 2 | Watcher + camera | Polls `Requests/`; camera by index with ffmpeg avfoundation (no serial or ID lookup); last working index as a hint; each camera tried at most once per request; rotate 180° (config); near-black frames rejected; uploads only the image of the camera that shows the whiteboard |
+| 2 | Watcher + camera | Polls `Requests/`; camera by index with ffmpeg avfoundation (no serial or ID lookup); `camera_name` in config (now `Logitech`, so FaceTime and iPhone are skipped; empty means all cameras); warm-up: first 1.5 s discarded (3 frames at 2 fps), photo is the 4th frame; a dark frame is retried once after the warm-up, then the next camera; last working index as a hint; each camera at most once per request after its retry; rotate 180° (config); uploads only the image of the camera that shows the whiteboard |
 | 3 | Describe step | Headless Claude Code (`claude -p`, Sonnet, Read only) with the photo and the request fields. First line `whiteboard: yes` or `whiteboard: no`; `no` moves on to the next camera. Refuses to run if an API key is set |
 | 4 | Deliver step | Write `Descriptions/description-NNNN.md` last (temporary name, then rename); contains request number, fields used, transcribed text, shapes, arrows, relations, short summary. If every camera fails: one error file with one line per camera. The `whiteboard:` line is not in the published file |
 
@@ -157,6 +157,16 @@ Nils chose the **Dropbox HTTP API with a refresh token** (app "Whiteboard-Captur
 **Model choice (describe, same photo, 2 runs each):** Sonnet 10.8 s per run; Haiku 10.6 s and 14.9 s. Both read the layout and the same unclear words. Sonnet chosen by the rule "fastest that reads correctly". Haiku is about 30 times cheaper per the CLI estimate ($0.002 to $0.005 against $0.046 to $0.076 per call).
 
 **Camera findings:** the index of the whiteboard camera changed between runs with no replug. The FaceTime camera hit the 25 s hard limit. Dark frames (closed lid) are rejected by brightness (threshold 20).
+
+### Warm-up and retry (2026-10-23, requests 0009 to 0011, launchd service)
+
+| Line # | Request | Status | Camera 1, first try | Camera 1, retry | Total before description upload | Request to description file |
+|---|---|---|---|---|---|---|
+| 1 | 0009 | ok | dark (brightness 1.5), photo 5.7 s | bright (130.3), photo 4.1 s, describe 10.8 s | 25.9 s | 35.3 s |
+| 2 | 0010 | ok | dark (1.3), photo 5.9 s | bright (130.0), photo 4.2 s, describe 10.5 s | 27.9 s | 38.0 s |
+| 3 | 0011 | ok | dark (1.4), photo 5.6 s | bright (129.9), photo 4.1 s, describe 8.5 s | 24.5 s | 34.0 s |
+
+Warm-up: the first 1.5 s are discarded (3 frames at 2 fps), the 4th frame is the photo. A dark first try is retried once. Every first try was dark, so the retry is what gets the picture. Still above the 10 s target (BL-018).
 
 ### Open risks and tests
 

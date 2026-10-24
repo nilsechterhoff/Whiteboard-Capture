@@ -28,6 +28,11 @@ class CameraError(Exception):
     pass
 
 
+class DarkFrameError(CameraError):
+    """Near-black frame (closed lid, or not warmed up yet). The camera is retried once."""
+    pass
+
+
 class DescribeError(Exception):
     pass
 
@@ -139,6 +144,27 @@ def fail(store, watch, number, reasons):
     watch.finish('error', upload_s)
 
 
+REOPENS = 2  # after a dark frame: close, reopen at once, up to this many times
+
+
+def capture_once_or_retry_dark(cameras, watch, index):
+    """One photo from `index`. A dark frame makes the camera be reopened at once, up to
+    REOPENS times. Returns (photo, None) or (None, error). Every try goes to the timing block.
+    """
+    error = None
+    for attempt in range(REOPENS + 1):
+        try:
+            return cameras.capture(index), None
+        except CameraError as err:
+            info = dict(getattr(cameras, 'last', {}))
+            label = err if attempt == 0 else 'reopen %d: %s' % (attempt, err)
+            watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'))
+            error = err
+            if not isinstance(err, DarkFrameError):
+                break
+    return None, error
+
+
 def handle_request(store, cameras, describer, memory, watch, settings, name):
     """Try the cameras one at a time (each at most once). Write the image and description
     of the first camera that shows a whiteboard, or one error description listing every try.
@@ -161,12 +187,9 @@ def handle_request(store, cameras, describer, memory, watch, settings, name):
     watch.camera_list(watch.clock() - started)
     reasons = []
     for index in camera_order([i for i, _ in devices], memory.index()):
-        try:
-            photo = cameras.capture(index)
-        except CameraError as err:
-            info = dict(getattr(cameras, 'last', {}))
-            watch.camera_try(index, err, info.get('photo_s'), info.get('brightness'))
-            reasons.append('camera %d: %s' % (index, err))
+        photo, error = capture_once_or_retry_dark(cameras, watch, index)
+        if photo is None:
+            reasons.append('camera %d: %s' % (index, error))
             continue
         info = dict(getattr(cameras, 'last', {}))
         started = watch.clock()
@@ -214,12 +237,15 @@ def process_pending(store, cameras, describer, memory, watch, now, settings,
     is simply tried again on the next run.
     """
     handled = []
-    names = sorted(n for n in store.list_names('/Requests') if REQUEST_NAME.match(n))
+    try:
+        names = sorted(n for n in store.list_names('/Requests') if REQUEST_NAME.match(n))
+    except OSError:
+        return handled  # no network: try again on the next pass, the service keeps running
     for name in names:
         number = REQUEST_NAME.match(name).group(1)
-        if store.exists(description_path(number)):
-            continue
         try:
+            if store.exists(description_path(number)):
+                continue
             modified = store.modified(request_path(name))
             watch.begin(number, now - modified)
             if store.exists(image_path(number)):

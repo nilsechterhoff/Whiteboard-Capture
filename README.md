@@ -14,7 +14,7 @@ Voice mode cannot view images (tested), so a separate **image agent** turns a fr
 | 2 | Decisions | ADR-0006, ADR-0008 (`accepted` 2026-10-22); ADR-0007 superseded by ADR-0008 |
 | 2a | Build brief for Claude Code | [project/handover/brief-build-mvp-b-watcher.md](project/handover/brief-build-mvp-b-watcher.md) |
 | 3 | Rules for the voice agent | `Whiteboard/instructions.md` in Dropbox (source of truth) |
-| 4 | Status | Voice side built and tested; watcher and describe step built and run once end to end (2026-10-22, about 34 s, above the 10 s target). Background service not installed yet ([backlog](project/backlog.md) BL-016 to BL-018, BL-022, BL-023) |
+| 4 | Status | Voice side built and tested; watcher and describe step built. Background service installed and running (launchd), camera warm-up and one dark-frame retry added (2026-10-23). Time from request to description still above the 10 s target ([backlog](project/backlog.md) BL-016 to BL-018, BL-022, BL-023) |
 | 5 | Folder deviation | `instructions.md` stays at `/Whiteboard/` in Dropbox (user settings point there). The working folders `Requests/`, `Images/`, `Descriptions/` are in `/Apps/Whiteboard-Capture/` (brief section 4 says all move; decided by Nils 2026-10-22) |
 
 ## Earlier pipeline (timed capture, parked)
@@ -121,3 +121,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 6 | 0006 | [Describe the board with an image agent and hand text to voice mode](docs/decisions/0006-describe-the-board-with-an-image-agent-and-hand-text-to-voice-mode.md) | accepted |
 | 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | superseded by ADR-0008 |
 | 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
+| 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
