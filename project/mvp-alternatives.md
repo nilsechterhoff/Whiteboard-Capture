@@ -107,7 +107,7 @@ Design choices:
 | Line # | Item | Value |
 |---|---|---|
 | 1 | Timing log (one row per request) | `~/Library/Logs/whiteboard-watcher-timings.csv`. Columns: when, request, machine, model, outcome, detect_s, camera_list_s, tries (`index:result:photo_s:brightness:describe_s`), image_upload_s, describe_upload_s, total_s. No whiteboard content |
-| 2 | Voice check window | First check at 10 s after the request, then every 5 s until 40 s |
+| 2 | Voice check window | First check at 10 s, then every 5 s until 40 s |
 | 3 | `instructions.md` (Dropbox) | Updated by Claude in the chat, not by the watcher and not by Nils's script. It holds the marker rule and the `model` field |
 
 ### Where the rules live
