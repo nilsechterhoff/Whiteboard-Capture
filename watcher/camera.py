@@ -123,6 +123,29 @@ def capture(index, folder, rotation_degrees=0, dark_below=DARK_BELOW, run=subpro
             pass
 
 
+def stream_command(index, folder, rotation_degrees=0):
+    """ffmpeg command that keeps one camera open and rewrites its newest frame (about 2 per second).
+    Returns (command, path of the newest frame)."""
+    out = os.path.join(folder, 'agile-%d.jpg' % index)
+    filters = rotation_filters(rotation_degrees) + ['fps=2']
+    cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
+           '-framerate', FRAMERATE, '-video_size', SIZE, '-i', '%d:none' % index,
+           '-vf', ','.join(filters), '-update', '1', '-atomic_writing', '1', '-y', out]
+    return cmd, out
+
+
+def get_newest_frame(path, now, max_age=3.0, dark_below=DARK_BELOW, run=subprocess.run):
+    """The single access point to an open stream: the newest frame, if it is fresh and not dark.
+    Returns (JPEG bytes, brightness). Raises CameraError (no fresh frame) or DarkFrameError."""
+    if not os.path.exists(path) or now - os.stat(path).st_mtime > max_age:
+        raise CameraError('no fresh frame from the open stream')
+    brightness = mean_brightness(path, run)
+    if brightness < dark_below:
+        raise DarkFrameError('dark, closed lid (mean %d)' % brightness)
+    with open(path, 'rb') as handle:
+        return handle.read(), brightness
+
+
 def load_last(path):
     """Index of the last working camera from the state file, or None if missing or corrupt."""
     try:

@@ -70,5 +70,20 @@ class BoardFillConfigTests(unittest.TestCase):
             self.assertEqual(len(cfg.validate({'min_board_fill_percent': bad})), 1, bad)
 
 
+class AgileConfigTests(unittest.TestCase):
+
+    def test_defaults_are_lean_and_ten_minutes(self):
+        d = cfg.apply_defaults({})
+        self.assertEqual(d['mode'], 'lean')
+        self.assertEqual(d['agile_idle_timeout_seconds'], 600)
+        self.assertEqual(d['agile_timer_reset_events'], {'request': 'yes'})
+
+    def test_mode_and_timeout_and_events_are_checked(self):
+        self.assertEqual(cfg.validate({'mode': 'agile'}), [])
+        self.assertEqual(len(cfg.validate({'mode': 'turbo'})), 1)
+        self.assertEqual(len(cfg.validate({'agile_idle_timeout_seconds': 0})), 1)
+        self.assertEqual(len(cfg.validate({'agile_timer_reset_events': {'request': 'maybe'}})), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

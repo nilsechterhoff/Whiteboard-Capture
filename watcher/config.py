@@ -8,6 +8,9 @@ import camera as cam
 DEFAULTS = {
     'rotation_degrees': 0,
     'min_board_fill_percent': 0,  # 0 = off
+    'mode': 'lean',               # lean | agile
+    'agile_idle_timeout_seconds': 600,
+    'agile_timer_reset_events': {'request': 'yes'},
 }
 
 
@@ -27,4 +30,13 @@ def validate(config):
     fill = config.get('min_board_fill_percent', DEFAULTS['min_board_fill_percent'])
     if not isinstance(fill, int) or isinstance(fill, bool) or not 0 <= fill <= 100:
         errors.append('min_board_fill_percent must be a whole number from 0 to 100 (got %r)' % (fill,))
+    mode = config.get('mode', DEFAULTS['mode'])
+    if mode not in ('lean', 'agile'):
+        errors.append('mode must be lean or agile (got %r)' % (mode,))
+    timeout = config.get('agile_idle_timeout_seconds', DEFAULTS['agile_idle_timeout_seconds'])
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        errors.append('agile_idle_timeout_seconds must be a whole number above 0 (got %r)' % (timeout,))
+    events = config.get('agile_timer_reset_events', DEFAULTS['agile_timer_reset_events'])
+    if not isinstance(events, dict) or any(v not in ('yes', 'no') for v in events.values()):
+        errors.append('agile_timer_reset_events must map event names to yes or no')
     return errors

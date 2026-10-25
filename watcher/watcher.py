@@ -16,9 +16,11 @@ Python 3.9 standard library only.
 """
 
 import argparse
+import atexit
 import fcntl
 import json
 import logging
+import signal
 import os
 import sys
 import time
@@ -32,6 +34,7 @@ from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
 from results import Results                # noqa: E402
 import config as config_mod                # noqa: E402
+import agile as agile_mod                  # noqa: E402
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -106,6 +109,11 @@ class Timed(object):
 def pass_once(store, cameras, describer, memory, watch, results, settings):
     started = time.time()
     handled = ww.process_pending(store, cameras, describer, memory, watch, results, time.time(), settings)
+    for _ in handled:
+        if hasattr(cameras.target if isinstance(cameras, Timed) else cameras, 'note_event'):
+            cameras.note_event('request')
+    if hasattr(cameras.target if isinstance(cameras, Timed) else cameras, 'tick'):
+        cameras.tick()
     if handled:
         log.info('pass done: handled %s in %.2f s' % (', '.join(handled), time.time() - started))
     return handled
@@ -139,8 +147,15 @@ def main(argv):
         return 1
 
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
-    cameras = Timed(cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'],
-                                config['dark_below']), 'camera')
+    lean = cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'], config['dark_below'])
+    if config['mode'] == 'agile':
+        agile = agile_mod.AgileCameras(WORK_DIR, lean, config['rotation_degrees'], config['dark_below'],
+                                       config['agile_idle_timeout_seconds'], config['agile_timer_reset_events'])
+        atexit.register(agile.close)
+        signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
+        cameras = Timed(agile, 'camera')
+    else:
+        cameras = Timed(lean, 'camera')
     describer = Timed(Describer(WORK_DIR, config['models']), 'describe')
     memory = Memory()
     watch = Watch(csv_path=TIMINGS_PATH)
