@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import camera as cam                       # noqa: E402
 import whiteboard_watcher as ww            # noqa: E402
 from describe import Describer             # noqa: E402
+import describe as describe_mod            # noqa: E402
 from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
 from results import Results                # noqa: E402
@@ -156,7 +157,12 @@ def main(argv):
         cameras = Timed(agile, 'camera')
     else:
         cameras = Timed(lean, 'camera')
-    describer = Timed(Describer(WORK_DIR, config['models']), 'describe')
+    lean_describer = Describer(WORK_DIR, config['models'])
+    if config['mode'] == 'agile' and config['agile_session'] == 'yes':
+        describer = Timed(describe_mod.SessionDescriber(
+            WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests']), 'describe')
+    else:
+        describer = Timed(lean_describer, 'describe')
     memory = Memory()
     watch = Watch(csv_path=TIMINGS_PATH)
     results = Results(os.path.join(CONFIG_DIR, 'results'))

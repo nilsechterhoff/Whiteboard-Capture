@@ -5,9 +5,12 @@ whiteboard_watcher.split_answer). Only Read is allowed. Refuses to run if
 ANTHROPIC_API_KEY is set, so nothing is billed to an API key. Standard library only.
 """
 
+import base64
 import json
 import os
+import select
 import subprocess
+import time
 
 from whiteboard_watcher import DescribeError
 
@@ -16,10 +19,14 @@ TIMEOUT = 120         # hard limit per run, seconds
 PHOTO_NAME = 'describe-photo.jpg'
 
 
-def build_prompt(fields):
+def build_prompt(fields, photo_ref=None):
+    """photo_ref None: the lean call reads PHOTO_NAME in the work folder; a session passes the
+    attached image instead."""
     others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k != 'request')
+    start = ("Read the image file %s in this folder. " % PHOTO_NAME if photo_ref is None
+             else 'Look at the attached image. ')
     return (
-        "Read the image file %s in this folder. "
+        start +
         "The first line of your answer must be exactly 'whiteboard: yes' if the image shows "
         "a whiteboard with handwriting, otherwise exactly 'whiteboard: no'. "
         "If the answer is no, stop after that line. "
@@ -32,7 +39,7 @@ def build_prompt(fields):
         "(3) a short summary. "
         "Request fields: %s. Honour marker_color and region fields if given. "
         "Plain text, no tool use other than reading the image."
-    ) % (PHOTO_NAME, others or 'none')
+    ) % (others or 'none')
 
 
 class Describer(object):
@@ -78,3 +85,94 @@ class Describer(object):
         if answer.get('is_error'):
             raise DescribeError('claude reported an error')
         return answer.get('result', '')
+
+
+class SessionDescriber(object):
+    """Agile phase 2: one long-lived `claude -p` session (stream-json in and out). Each photo is
+    sent as a new message into the open session. The session restarts after `restart_after`
+    requests, when the model changes, or when it is gone. Any session failure closes it and runs
+    that request once through the lean describe; the next request starts a new session.
+    """
+
+    def __init__(self, folder, models, lean, restart_after=20, timeout=TIMEOUT,
+                 popen=subprocess.Popen, read_event=None, environ=None):
+        self.folder = folder
+        self.models = models
+        self.lean = lean
+        self.restart_after = restart_after
+        self.timeout = timeout
+        self.popen = popen
+        self.read_event = read_event or _read_event
+        self.environ = dict(os.environ if environ is None else environ)
+        self.proc = None
+        self.model = None
+        self.count = 0
+
+    def _env(self):
+        if self.environ.get('ANTHROPIC_API_KEY'):
+            raise DescribeError('ANTHROPIC_API_KEY is set; refusing to bill an API key')
+        env = dict(self.environ)
+        env.pop('ANTHROPIC_API_KEY', None)
+        return env
+
+    def _start(self, model):
+        self._stop()
+        cmd = [CLAUDE, '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+               '--verbose', '--model', self.models[model], '--allowedTools', '']
+        self.proc = self.popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, cwd=self.folder, env=self._env())
+        self.model = model
+        self.count = 0
+
+    def _stop(self):
+        if self.proc is not None:
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+            self.proc = None
+            self.model = None
+
+    def _ask(self, photo, fields):
+        message = {'type': 'user', 'message': {'role': 'user', 'content': [
+            {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
+                                         'data': base64.b64encode(photo).decode('ascii')}},
+            {'type': 'text', 'text': build_prompt(fields, photo_ref='attached')}]}}
+        self.proc.stdin.write((json.dumps(message) + '\n').encode('utf-8'))
+        self.proc.stdin.flush()
+        deadline = time.time() + self.timeout
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                raise DescribeError('session timed out after %d s' % self.timeout)
+            event = self.read_event(self.proc, left)
+            if event is None:
+                raise DescribeError('session closed')
+            if event.get('type') == 'result':
+                if event.get('is_error'):
+                    raise DescribeError('session reported an error')
+                return event.get('result', '')
+
+    def describe(self, photo, fields):
+        self._env()  # refuses if the key is set
+        try:
+            if (self.proc is None or self.model != fields['model'] or self.count >= self.restart_after
+                    or self.proc.poll() is not None):
+                self._start(fields['model'])
+            text = self._ask(photo, fields)
+            self.count += 1
+            return text
+        except (DescribeError, OSError, ValueError):
+            self._stop()
+            return self.lean.describe(photo, fields)
+
+
+def _read_event(proc, timeout):
+    """One JSON event from the session's stdout, or None if it closed. Raises DescribeError on timeout."""
+    ready, _, _ = select.select([proc.stdout], [], [], timeout)
+    if not ready:
+        raise DescribeError('session timed out')
+    line = proc.stdout.readline()
+    if not line:
+        return None
+    return json.loads(line.decode('utf-8'))

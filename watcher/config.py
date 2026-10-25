@@ -11,6 +11,8 @@ DEFAULTS = {
     'mode': 'lean',               # lean | agile
     'agile_idle_timeout_seconds': 600,
     'agile_timer_reset_events': {'request': 'yes'},
+    'agile_session': 'no',                  # phase 2: yes | no
+    'agile_session_restart_after_requests': 20,
 }
 
 
@@ -39,4 +41,10 @@ def validate(config):
     events = config.get('agile_timer_reset_events', DEFAULTS['agile_timer_reset_events'])
     if not isinstance(events, dict) or any(v not in ('yes', 'no') for v in events.values()):
         errors.append('agile_timer_reset_events must map event names to yes or no')
+    session = config.get('agile_session', DEFAULTS['agile_session'])
+    if session not in ('yes', 'no'):
+        errors.append('agile_session must be yes or no (got %r)' % (session,))
+    restart = config.get('agile_session_restart_after_requests', DEFAULTS['agile_session_restart_after_requests'])
+    if not isinstance(restart, int) or isinstance(restart, bool) or restart <= 0:
+        errors.append('agile_session_restart_after_requests must be a whole number above 0 (got %r)' % (restart,))
     return errors
