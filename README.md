@@ -45,6 +45,14 @@ Design criteria for MVP B, collected from decisions with Nils (2026-10-22 to 202
 
 **Known gaps against these goals** (found 2026-10-25, not yet fixed): Mac-only paths in `watcher/whiteboard_watcher.py`; user name, `launchctl` and a Homebrew path in `watcher/setup_dropbox.py`; the `avfoundation` input in `watcher/camera.py`. Time from request to description is still above the 10 s target.
 
+## Prerequisites for the voice side
+
+| Line # | Prerequisite | Why |
+|---|---|---|
+| 1 | Dropbox connector in Claude (read, list and create-file tools set to "Always allow") | The voice agent writes requests and reads descriptions and `status.md` |
+| 2 | **Time Now** connector (hosted, read-only) | The voice agent reads a clock instead of counting aloud ([ADR-0010](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md), `accepted` 2026-10-25). If it is missing, the agent falls back to counting |
+| 3 | One line in the user settings pointing to `Whiteboard/instructions.md` in Dropbox | Voice mode has no skills, so the procedure lives in that file |
+
 ## Earlier pipeline (timed capture, parked)
 
 Captures a frame every ~20 s so Claude can read it in text mode. Built and tested with a stub; ADR-0002, ADR-0003 and ADR-0005 are superseded by ADR-0007.
@@ -150,3 +158,4 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | superseded by ADR-0008 |
 | 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
 | 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
+| 10 | 0010 | [Use a time connector as the voice agent's clock](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md) | accepted |
