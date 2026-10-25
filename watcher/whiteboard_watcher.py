@@ -5,6 +5,7 @@ test_whiteboard_watcher.py), so the logic is tested without network or hardware.
 Python 3.9 standard library only.
 """
 
+import logging
 import re
 import time
 
@@ -98,6 +99,20 @@ def split_answer(text):
     if first == WHITEBOARD_NO:
         return False, body
     raise DescribeError('answer did not start with a whiteboard line')
+
+
+def split_fill(body):
+    """Take the 'fill: NN' line out of the describe body (it must be among the first two lines).
+    Returns (fill as int 0 to 100, or None if missing or unparsable; body without that line).
+    A missing or unparsable value is None: with the check on, it counts as a failed check."""
+    lines = body.splitlines()
+    for i, line in enumerate(lines[:2]):
+        match = re.match(r'^\s*fill\s*:\s*(\d{1,3})\s*%?\s*$', line, re.IGNORECASE)
+        if match:
+            value = int(match.group(1))
+            rest = '\n'.join(lines[:i] + lines[i + 1:]).strip()
+            return (value if value <= 100 else None), rest
+    return None, body
 
 
 def camera_order(indices, remembered):
@@ -255,6 +270,16 @@ def capture_once_or_retry_dark(cameras, watch, index):
     return None, error
 
 
+LOG = logging.getLogger('whiteboard')
+
+
+def board_passes(is_board, fill, min_fill):
+    """A camera passes only with a yes answer and, if the check is on, a fill at or above the setting."""
+    if not is_board:
+        return False
+    return min_fill == 0 or (fill is not None and fill >= min_fill)
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -285,7 +310,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         started = watch.clock()
         described = True
         try:
-            is_board, body = split_answer(describer.describe(photo, fields))
+            raw = describer.describe(photo, fields)
+            is_board, body = split_answer(raw)
+            fill, body = split_fill(body)
         except DescribeError as err:
             describe_s = watch.clock() - started
             watch.camera_try(index, 'describe error: %s' % err, info.get('photo_s'),
@@ -293,10 +320,15 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             reasons.append('camera %d: describe: %s' % (index, err))
             continue
         describe_s = watch.clock() - started
-        if not is_board:
-            watch.camera_try(index, 'not a whiteboard', info.get('photo_s'),
-                             info.get('brightness'), describe_s)
-            reasons.append('camera %d: not a whiteboard' % index)
+        min_fill = settings.get('min_board_fill_percent', 0)
+        LOG.info('request %s camera %d raw answer: %r; fill %s; check %s'
+                 % (number, index, raw, fill, min_fill or 'off'))
+        if not board_passes(is_board, fill, min_fill):
+            label = 'not a whiteboard' if not is_board else (
+                'board fill %s below %d' % (fill, min_fill) if fill is not None
+                else 'board fill missing')
+            watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'), describe_s)
+            reasons.append('camera %d: %s' % (index, label))
             continue
         if not body:
             watch.camera_try(index, 'describe: empty description', info.get('photo_s'),

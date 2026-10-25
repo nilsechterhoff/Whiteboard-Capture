@@ -57,5 +57,18 @@ class ConfigTests(unittest.TestCase):
         self.assertIn('0, 90, 180, 270', errors[0])
 
 
+class BoardFillConfigTests(unittest.TestCase):
+
+    def test_default_is_off(self):
+        self.assertEqual(cfg.apply_defaults({})['min_board_fill_percent'], 0)
+
+    def test_range_0_to_100(self):
+        self.assertEqual(cfg.validate({'min_board_fill_percent': 80}), [])
+        self.assertEqual(cfg.validate({'min_board_fill_percent': 0}), [])
+        self.assertEqual(cfg.validate({'min_board_fill_percent': 100}), [])
+        for bad in (-1, 101, 80.5, '80', True):
+            self.assertEqual(len(cfg.validate({'min_board_fill_percent': bad})), 1, bad)
+
+
 if __name__ == '__main__':
     unittest.main()

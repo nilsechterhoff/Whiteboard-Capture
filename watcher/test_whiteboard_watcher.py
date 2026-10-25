@@ -191,6 +191,27 @@ class ParseRequestTests(unittest.TestCase):
                 self.parse(VALID + bad)
 
 
+class SplitFillTests(unittest.TestCase):
+
+    def test_fill_line_is_taken_out_of_the_body(self):
+        self.assertEqual(ww.split_fill('fill: 85\n## Text\nHELLO'), (85, '## Text\nHELLO'))
+
+    def test_percent_sign_and_case_tolerated(self):
+        self.assertEqual(ww.split_fill('Fill: 90%\nbody')[0], 90)
+
+    def test_missing_or_unparsable_is_none(self):
+        self.assertEqual(ww.split_fill('body only')[0], None)
+        self.assertEqual(ww.split_fill('fill: lots\nbody')[0], None)
+        self.assertEqual(ww.split_fill('fill: 150\nbody')[0], None)
+
+    def test_board_passes_rule(self):
+        self.assertTrue(ww.board_passes(True, 85, 80))
+        self.assertFalse(ww.board_passes(True, 79, 80))
+        self.assertFalse(ww.board_passes(True, None, 80))
+        self.assertTrue(ww.board_passes(True, None, 0))
+        self.assertFalse(ww.board_passes(False, 99, 0))
+
+
 class SplitAnswerTests(unittest.TestCase):
 
     def test_yes_strips_the_line(self):
@@ -699,6 +720,35 @@ class OrderAndStatusTests(unittest.TestCase):
         self.run_pass(store)
         self.assertEqual(self.status(store).splitlines()[0], 'status: ok')
         self.assertEqual(sorted(p for p in store.files if not p.startswith(('/Requests', '/Descriptions', '/Images', '/status'))), [])
+
+
+class BoardFillFlowTests(ProcessTests):
+
+    def test_low_fill_is_refused_and_next_camera_used(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        describer = FakeDescriber(answers={b'photo-0': 'whiteboard: yes\nfill: 30\nroom'},
+                                  default='whiteboard: yes\nfill: 90\n## Text\nHELLO')
+        settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
+        _, cameras, _, _ = self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
+        self.assertEqual(cameras.captures, [0, 1])
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
+        self.assertIn('HELLO', self.description(store))
+        self.assertNotIn('fill:', self.description(store))
+
+    def test_missing_fill_with_check_on_fails_and_is_logged(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        describer = FakeDescriber(default='whiteboard: yes\nno fill line here')
+        settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
+        with self.assertLogs('whiteboard', level='INFO') as logs:
+            self.run_one(store, FakeCameras([0]), describer, settings=settings)
+        self.assertIn('board fill missing', self.description(store))
+        self.assertTrue(any('raw answer' in line and 'no fill line here' in line for line in logs.output))
+
+    def test_check_off_ignores_fill(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        describer = FakeDescriber(default='whiteboard: yes\nfill: 5\nHELLO')
+        self.run_one(store, FakeCameras([0]), describer)
+        self.assertIn('status: ok', self.description(store))
 
 
 if __name__ == '__main__':

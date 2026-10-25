@@ -9,6 +9,7 @@ Config: ~/Library/Application Support/whiteboard-watcher/config.json
   app_key, app_secret, refresh_token (from setup_dropbox.py)
   camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
+  min_board_fill_percent (0 = off; Nils's config: 80)
 Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
         ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
 Python 3.9 standard library only.
@@ -144,7 +145,8 @@ def main(argv):
     memory = Memory()
     watch = Watch(csv_path=TIMINGS_PATH)
     results = Results(os.path.join(CONFIG_DIR, 'results'))
-    settings = {'models': config['models'], 'default_model': config['default_model']}
+    settings = {'models': config['models'], 'default_model': config['default_model'],
+                'min_board_fill_percent': config['min_board_fill_percent']}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
     if args.once:
