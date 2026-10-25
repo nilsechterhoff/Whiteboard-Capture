@@ -50,7 +50,7 @@ Design criteria for MVP B, collected from decisions with Nils (2026-10-22 to 202
 | Line # | Prerequisite | Why |
 |---|---|---|
 | 1 | Dropbox connector in Claude (read, list and create-file tools set to "Always allow") | The voice agent writes requests and reads descriptions and `status.md` |
-| 2 | **Time Now** connector (hosted, read-only) | The voice agent reads a clock instead of counting aloud ([ADR-0010](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md), `proposed`). If it is missing, the agent falls back to counting |
+| 2 | **Time Now** connector (hosted, read-only) | The voice agent reads a clock instead of counting aloud ([ADR-0010](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md), `accepted` 2026-10-25). If it is missing, the agent falls back to counting |
 | 3 | One line in the user settings pointing to `Whiteboard/instructions.md` in Dropbox | Voice mode has no skills, so the procedure lives in that file |
 
 ## Earlier pipeline (timed capture, parked)

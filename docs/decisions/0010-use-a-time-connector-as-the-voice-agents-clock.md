@@ -1,5 +1,5 @@
 ---
-status: "proposed"
+status: "accepted"
 date: 2026-10-25
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
@@ -68,4 +68,4 @@ Run a voice request and check that the agent finds the description without count
 
 * Tested by Nils and Claude in voice mode on 2026-10-25.
 * Related: ADR-0007 (superseded), ADR-0008, `project/mvp-alternatives.md` (constraints).
-* Accepted by Nils Echterhoff: pending.
+* Accepted by Nils Echterhoff on 2026-10-25 (said "yes" to merging and accepting in the text chat; Claude recorded the status on that basis).
