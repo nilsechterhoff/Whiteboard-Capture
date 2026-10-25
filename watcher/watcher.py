@@ -29,6 +29,7 @@ import whiteboard_watcher as ww            # noqa: E402
 from describe import Describer             # noqa: E402
 from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
+from results import Results                # noqa: E402
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -97,9 +98,9 @@ class Timed(object):
         return timed
 
 
-def pass_once(store, cameras, describer, memory, watch, settings):
+def pass_once(store, cameras, describer, memory, watch, results, settings):
     started = time.time()
-    handled = ww.process_pending(store, cameras, describer, memory, watch, time.time(), settings)
+    handled = ww.process_pending(store, cameras, describer, memory, watch, results, time.time(), settings)
     if handled:
         log.info('pass done: handled %s in %.2f s' % (', '.join(handled), time.time() - started))
     return handled
@@ -138,6 +139,7 @@ def main(argv):
     describer = Timed(Describer(WORK_DIR, config['models']), 'describe')
     memory = Memory()
     watch = Watch(csv_path=TIMINGS_PATH)
+    results = Results(os.path.join(CONFIG_DIR, 'results'))
     settings = {'models': config['models'], 'default_model': config['default_model']}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
@@ -145,10 +147,10 @@ def main(argv):
         if args.wait and not wait_for_request(store, args.wait):
             log.info('no request within %.0f s' % args.wait)
             return 0
-        pass_once(store, cameras, describer, memory, watch, settings)
+        pass_once(store, cameras, describer, memory, watch, results, settings)
         return 0
     while True:
-        pass_once(store, cameras, describer, memory, watch, settings)
+        pass_once(store, cameras, describer, memory, watch, results, settings)
         time.sleep(POLL_SECONDS)
 
 

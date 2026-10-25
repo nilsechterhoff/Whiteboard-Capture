@@ -91,6 +91,35 @@ Design choices:
 - Request file = a container: later fields (for example a free question) need no redesign.
 - Short names map to model IDs in the config file (`models`), not in the code. A new model is a one-line edit there.
 
+### Upload order and status file (2026-10-25)
+
+Per request: photo, describe, **upload the description**, **upload the image**, write **`status.md`** (app folder root). The description is still the last thing the voice agent needs; the image follows.
+
+| Line # | Rule | Detail |
+|---|---|---|
+| 1 | Local copy first | Photo and description are saved under the config folder before any upload. A restart never takes a new photo |
+| 2 | Description in Dropbox, image missing | One image upload from the local copy (one attempt). If it fails: `IMAGE_UPLOAD_FAILED`, local photo kept, request done |
+| 3 | Local copy, no description (crash after describe) | Upload the description from the local copy; no new photo |
+| 4 | Image in Dropbox, no description | Older run (image was uploaded first before this change). Error description: "interrupted", code `UNKNOWN_ERROR` |
+| 5 | Description upload fails (network) | `DESCRIPTION_UPLOAD_FAILED`; request stays open and the description is retried from the local copy on the next pass |
+| 6 | Image upload fails | One retry. If it fails again: `IMAGE_UPLOAD_FAILED`, local copy kept, request done |
+| 7 | Any other unexpected exception | `UNKNOWN_ERROR`, request done, status written. A network error (OSError) is not an outcome: the request is tried again |
+| 8 | Camera / describe | `CAMERA_FAILED` if no camera gave a photo; `DESCRIBE_FAILED` if a photo was described but no whiteboard was confirmed |
+
+**Status file `status.md`** (rewritten at the end of every request):
+
+```
+status: ok
+time: 2026-10-25 10:00:00
+last request: 0016
+description delivered: yes
+image saved: yes
+```
+
+On error, two more lines: `code: <CODE>` and `message: <one plain sentence>`. Errors reach the user only through this file, which the voice agent reads. No notifications.
+
+**Timing:** the image upload time goes to the local CSV only (`image_upload_s`), not into the description's timing block.
+
 ### Description format
 
 `Descriptions/description-NNNN.md`, written last. Order:

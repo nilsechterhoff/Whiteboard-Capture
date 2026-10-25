@@ -6,6 +6,7 @@ Python 3.9 standard library only.
 """
 
 import re
+import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
 FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]+(.+)$')
@@ -116,6 +117,10 @@ def publish(store, path, data):
     store.move(temp, path)
 
 
+def one_line(text):
+    return ' '.join(str(text).split())
+
+
 def render_error(number, reasons):
     lines = ['status: error', 'request: "%s"' % number]
     lines += ['reason: %s' % ' '.join(str(reason).split()) for reason in reasons]
@@ -130,18 +135,103 @@ def render_ok(number, fields, body):
     return '\n'.join(lines) + '\n\n' + body.strip() + '\n'
 
 
+STATUS_PATH = '/status.md'
+CODES = ('IMAGE_UPLOAD_FAILED', 'DESCRIPTION_UPLOAD_FAILED', 'CAMERA_FAILED', 'DESCRIBE_FAILED',
+         'UNKNOWN_ERROR')
+MESSAGES = {
+    'IMAGE_UPLOAD_FAILED': 'The description is delivered, but the photo could not be uploaded; the local copy is kept.',
+    'DESCRIPTION_UPLOAD_FAILED': 'The description could not be uploaded yet; it will be retried from the local copy.',
+    'CAMERA_FAILED': 'No camera gave a usable photo of the whiteboard.',
+    'DESCRIBE_FAILED': 'The photo was taken, but the describe step did not confirm a whiteboard.',
+    'UNKNOWN_ERROR': 'An unexpected error stopped this request; the local files are kept.',
+}
+
+
 def write_description(store, watch, number, text):
-    """Upload the description last. Returns the upload time (CSV log only, not in the block)."""
+    """Upload the description. Returns the upload time (CSV log only, not in the block)."""
     started = watch.clock()
     publish(store, description_path(number), text.encode('utf-8'))
     return watch.clock() - started
 
 
-def fail(store, watch, number, reasons):
-    """One error description for this request: the reasons, then the timing block."""
+def upload_image(store, watch, number, photo, attempts):
+    """Upload the photo, up to `attempts` times. Returns True if it is in Dropbox."""
+    for _ in range(attempts):
+        started = watch.clock()
+        try:
+            publish(store, image_path(number), photo)
+        except OSError:
+            continue
+        watch.image_upload(watch.clock() - started)
+        return True
+    return False
+
+
+def write_status(store, watch, number, ok, delivered, saved, code=None, message=None):
+    """status.md in the app folder root, rewritten at the end of every request.
+    A failure to write it is not raised: the voice agent then sees the previous status."""
+    lines = ['status: %s' % ('ok' if ok else 'error'),
+             'time: %s' % time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(watch.clock())),
+             'last request: %s' % number,
+             'description delivered: %s' % ('yes' if delivered else 'no'),
+             'image saved: %s' % ('yes' if saved else 'no')]
+    if code:
+        lines += ['code: %s' % code, 'message: %s' % one_line(message or MESSAGES[code])]
+    try:
+        # Uploaded straight to the final name: Dropbox replaces the file atomically, so a reader
+        # sees the old or the new status, never a half file. (move would refuse an existing file.)
+        store.upload(STATUS_PATH, ('\n'.join(lines) + '\n').encode('utf-8'))
+    except OSError:
+        pass
+
+
+def deliver(store, watch, results, number, photo, text):
+    """Description first, then the image. Always ends with a status file.
+
+    A failed description upload keeps the local copy and is retried on the next pass
+    (no new photo). A failed image upload gets one retry; then the request is done
+    with status error, and the local photo is kept.
+    """
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        watch.finish('description_upload_failed', None)
+        write_status(store, watch, number, False, False, False, 'DESCRIPTION_UPLOAD_FAILED')
+        return
+    saved = upload_image(store, watch, number, photo, attempts=2)
+    results.mark_done(number)
+    if not saved:
+        watch.finish('image_upload_failed', upload_s)
+        write_status(store, watch, number, False, True, False, 'IMAGE_UPLOAD_FAILED')
+        return
+    watch.finish('ok', upload_s)
+    write_status(store, watch, number, True, True, True)
+
+
+def resume_image(store, watch, results, number):
+    """Description is in Dropbox but the image is not: one more upload from the local copy.
+    The photo is never taken again."""
+    local = results.load(number)
+    saved = local is not None and upload_image(store, watch, number, local[0], attempts=1)
+    results.mark_done(number)
+    if saved:
+        write_status(store, watch, number, True, True, True)
+    else:
+        write_status(store, watch, number, False, True, False, 'IMAGE_UPLOAD_FAILED')
+
+
+def fail(store, watch, results, number, reasons, code, message=None):
+    """One error description for this request (the reasons, then the timing block),
+    and a status with the code. The request is done."""
     text = render_error(number, reasons) + '\n' + watch.block()
-    upload_s = write_description(store, watch, number, text)
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        upload_s = None
+        code = 'DESCRIPTION_UPLOAD_FAILED'
+    results.mark_done(number)
     watch.finish('error', upload_s)
+    write_status(store, watch, number, False, upload_s is not None, False, code, message)
 
 
 REOPENS = 2  # after a dark frame: close, reopen at once, up to this many times
@@ -165,16 +255,15 @@ def capture_once_or_retry_dark(cameras, watch, index):
     return None, error
 
 
-def handle_request(store, cameras, describer, memory, watch, settings, name):
-    """Try the cameras one at a time (each at most once). Write the image and description
-    of the first camera that shows a whiteboard, or one error description listing every try.
-    """
+def handle_request(store, cameras, describer, memory, watch, results, settings, name):
+    """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
     try:
         fields = parse_request(store.read_text(request_path(name)), number,
                                settings['models'], settings['default_model'])
     except ValueError as err:
-        fail(store, watch, number, ['request: %s' % err])
+        fail(store, watch, results, number, ['request: %s' % err], 'UNKNOWN_ERROR',
+             'The request file is not valid: %s' % one_line(err))
         return
     watch.set_model(fields['model'])
     started = watch.clock()
@@ -182,10 +271,11 @@ def handle_request(store, cameras, describer, memory, watch, settings, name):
         devices = cameras.list()
     except CameraError as err:
         watch.camera_list(watch.clock() - started)
-        fail(store, watch, number, ['camera: %s' % err])
+        fail(store, watch, results, number, ['camera: %s' % err], 'CAMERA_FAILED')
         return
     watch.camera_list(watch.clock() - started)
     reasons = []
+    described = False
     for index in camera_order([i for i, _ in devices], memory.index()):
         photo, error = capture_once_or_retry_dark(cameras, watch, index)
         if photo is None:
@@ -193,6 +283,7 @@ def handle_request(store, cameras, describer, memory, watch, settings, name):
             continue
         info = dict(getattr(cameras, 'last', {}))
         started = watch.clock()
+        described = True
         try:
             is_board, body = split_answer(describer.describe(photo, fields))
         except DescribeError as err:
@@ -213,28 +304,29 @@ def handle_request(store, cameras, describer, memory, watch, settings, name):
             reasons.append('camera %d: describe: empty description' % index)
             continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
-        started = watch.clock()
-        publish(store, image_path(number), photo)
-        watch.image_upload(watch.clock() - started)
         text = render_ok(number, fields, body) + '\n' + watch.block()
-        upload_s = write_description(store, watch, number, text)
+        results.save(number, photo, text)  # local copy first: a restart never takes a new photo
         memory.remember(index)
-        watch.finish('ok', upload_s)
+        deliver(store, watch, results, number, photo, text)
         return
-    fail(store, watch, number, reasons or ['camera: no camera listed'])
+    code = 'DESCRIBE_FAILED' if described else 'CAMERA_FAILED'
+    fail(store, watch, results, number, reasons or ['camera: no camera listed'], code)
 
 
-def process_pending(store, cameras, describer, memory, watch, now, settings,
+def process_pending(store, cameras, describer, memory, watch, results, now, settings,
                     max_age=MAX_REQUEST_AGE):
-    """Close every request that has no description yet, oldest first.
+    """Close every open request, oldest first. Each request ends with a status file.
 
-    - description exists: nothing to do
-    - image exists, no description: the run was interrupted; close with an error
-    - request older than max_age (e.g. after a Mac sleep): close with "expired", no photo
-    - otherwise: try the cameras and describe
+    - done (local marker): nothing to do
+    - description in Dropbox, image missing: one image upload from the local copy
+    - local copy but no description (crash after describe): upload the description from it
+    - image in Dropbox but no description (older run, before the new order): error
+    - request older than max_age (e.g. after a Mac sleep): error "expired", no photo
+    - otherwise: photo, describe, then deliver
 
-    An upload that fails (network) leaves no final file behind, so the request
-    is simply tried again on the next run.
+    A network error (OSError) is not an outcome: the request stays open and is tried again.
+    Any other unexpected exception ends the request with UNKNOWN_ERROR, so it is never
+    processed twice and always gets a status.
     """
     handled = []
     try:
@@ -244,17 +336,40 @@ def process_pending(store, cameras, describer, memory, watch, now, settings,
     for name in names:
         number = REQUEST_NAME.match(name).group(1)
         try:
+            if results.is_done(number):
+                continue
             if store.exists(description_path(number)):
+                if store.exists(image_path(number)):
+                    results.mark_done(number)  # already complete (older run): no status needed
+                else:
+                    resume_image(store, watch, results, number)
                 continue
             modified = store.modified(request_path(name))
             watch.begin(number, now - modified)
+            local = results.load(number)
+            if local is not None and local[0] is None:
+                results.mark_done(number)
+                write_status(store, watch, number, False, False, False, 'UNKNOWN_ERROR',
+                             'The local photo is missing, so the request cannot be finished.')
+                continue
+            if local is not None:
+                deliver(store, watch, results, number, local[0], local[1])
+                continue
             if store.exists(image_path(number)):
-                fail(store, watch, number, ['interrupted before the description was written'])
+                fail(store, watch, results, number,
+                     ['interrupted before the description was written'], 'UNKNOWN_ERROR',
+                     'An earlier run stopped before the description was written.')
             elif now - modified > max_age:
-                fail(store, watch, number, ['expired'])
+                fail(store, watch, results, number, ['expired'], 'UNKNOWN_ERROR',
+                     'The request was too old when the watcher saw it, so no photo was taken.')
             else:
-                handle_request(store, cameras, describer, memory, watch, settings, name)
+                handle_request(store, cameras, describer, memory, watch, results, settings, name)
                 handled.append(number)
         except OSError:
             continue
+        except Exception as err:
+            results.mark_done(number)
+            write_status(store, watch, number, False, False, False, 'UNKNOWN_ERROR',
+                         'An unexpected error stopped this request (%s); the local files are kept.'
+                         % err.__class__.__name__)
     return handled

@@ -47,7 +47,7 @@ class StopwatchTests(unittest.TestCase):
         for line in ['machine: test-mac', 'model: haiku', 'detect: 1.2 s', 'camera list: 0.4 s',
                      'camera 0: dark, closed lid (photo 4.9 s, brightness 1.4)',
                      'camera 1: ok (photo 4.8 s, brightness 124.6, describe 11.9 s)',
-                     'image upload: 2.9 s', 'total before description upload: 25.0 s']:
+                     'total before description upload: 25.0 s']:
             self.assertIn(line, block)
 
     def test_block_has_no_description_text(self):
@@ -98,9 +98,12 @@ class StopwatchTests(unittest.TestCase):
         self.assertEqual(len(watch.rows), 1)
         self.assertFalse(os.path.exists(self.csv))
 
-    def test_missing_values_show_a_dash_in_the_block(self):
+    def test_image_upload_is_not_in_the_block_only_in_the_csv(self):
         self.watch.begin('0004', 0)
-        self.assertIn('image upload: -', self.watch.block())
+        self.watch.image_upload(2.5)
+        self.assertNotIn('image upload', self.watch.block())
+        self.watch.finish('ok', 0.4)
+        self.assertEqual(self.watch.rows[0]['image_upload_s'], '2.50')
 
 
 if __name__ == '__main__':

@@ -97,3 +97,7 @@ Manual end-to-end run on a request: request file appears, image and description 
 * Decided in a voice session with Nils on 2026-10-22. Nils pre-approved this ADR in that session ("I will hereby pre-approve everything"); Claude recorded the status on that basis.
 * Supersedes ADR-0007 (status changed to "superseded by ADR-0008"; its decision text is unchanged).
 * Related: ADR-0006; build brief: [project/handover/brief-build-mvp-b-watcher.md](../../project/handover/brief-build-mvp-b-watcher.md).
+
+## Note (2026-10-25): order of the uploads
+
+Status of this ADR unchanged (`accepted`). The loop in step 2 to 5 is now: photo, describe, **upload the description, then upload the image**, then write `status.md` in the app folder root. The description stays the last thing the voice agent needs; the image follows. The local copy of each result (photo and description) is written before any upload, so a restart uploads the rest without taking a new photo. A request is never processed twice. Image upload time is in the local CSV log only, not in the description's timing block. Details: [mvp-alternatives](../../project/mvp-alternatives.md).
