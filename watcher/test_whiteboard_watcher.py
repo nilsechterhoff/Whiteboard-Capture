@@ -358,7 +358,7 @@ class ProcessTests(unittest.TestCase):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store)
         for kind, path in store.events:
-            if kind == 'upload':
+            if kind == 'upload' and path != '/status.md':  # status.md is replaced in one upload
                 self.assertTrue(path.endswith('.partial'), path)
 
     def test_image_without_description_is_closed_as_interrupted(self):
