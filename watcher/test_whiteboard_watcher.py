@@ -52,6 +52,8 @@ class FakeStore(object):
         self.files[path] = data
 
     def move(self, src, dst):
+        if dst in self.files:  # Dropbox move_v2 refuses to overwrite (autorename is off)
+            raise IOError('conflict: destination exists')
         self.events.append(('move', dst))
         self.files[dst] = self.files.pop(src)
 
@@ -260,9 +262,7 @@ class ProcessTests(unittest.TestCase):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store)
         moved = [dst for kind, dst in store.events if kind == 'move']
-        self.assertEqual(moved, ['/Descriptions/description-0003.md',
-                                 '/Images/image-0003.jpg',
-                                 '/status.md'])
+        self.assertEqual(moved, ['/Descriptions/description-0003.md', '/Images/image-0003.jpg'])
         self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
         self.assertIn('description delivered: yes\nimage saved: yes\n', store.text('/status.md'))
         self.assertIn('0003', self.results.done)
@@ -677,6 +677,13 @@ class OrderAndStatusTests(unittest.TestCase):
         self.assertIn('code: UNKNOWN_ERROR', self.status(store))
         self.assertIn('reason: interrupted before the description was written',
                       store.text('/Descriptions/description-0003.md'))
+
+    def test_status_is_replaced_when_an_older_status_exists(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/status.md'] = b'status: error\nlast request: 0002\n'
+        self.run_pass(store)
+        self.assertIn('last request: 0003', self.status(store))
+        self.assertTrue(self.status(store).startswith('status: ok\n'))
 
     def test_complete_older_request_is_marked_done_without_a_status(self):
         store = FakeStore({'request-0003.yaml': VALID})

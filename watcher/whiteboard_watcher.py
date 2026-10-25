@@ -178,7 +178,9 @@ def write_status(store, watch, number, ok, delivered, saved, code=None, message=
     if code:
         lines += ['code: %s' % code, 'message: %s' % one_line(message or MESSAGES[code])]
     try:
-        publish(store, STATUS_PATH, ('\n'.join(lines) + '\n').encode('utf-8'))
+        # Uploaded straight to the final name: Dropbox replaces the file atomically, so a reader
+        # sees the old or the new status, never a half file. (move would refuse an existing file.)
+        store.upload(STATUS_PATH, ('\n'.join(lines) + '\n').encode('utf-8'))
     except OSError:
         pass
 
