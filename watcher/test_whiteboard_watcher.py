@@ -751,5 +751,23 @@ class BoardFillFlowTests(ProcessTests):
         self.assertIn('status: ok', self.description(store))
 
 
+class FailedPhotoFlowTests(ProcessTests):
+
+    def test_all_no_keeps_each_rejected_photo(self):
+        import os
+        import shutil
+        import testroot
+        folder = os.path.join(testroot.mkdtemp(), 'failed-photos')
+        try:
+            store = FakeStore({'request-0003.yaml': VALID})
+            describer = FakeDescriber(default='whiteboard: no')
+            settings = dict(SETTINGS, failed_photos_dir=folder, failed_photos_keep=5)
+            self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
+            self.assertEqual(sorted(os.listdir(folder)), ['request-0003-cam00.jpg', 'request-0003-cam01.jpg'])
+            self.assertIn('status: error', self.description(store))
+        finally:
+            shutil.rmtree(os.path.dirname(folder))
+
+
 if __name__ == '__main__':
     unittest.main()

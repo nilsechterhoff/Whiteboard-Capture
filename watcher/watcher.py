@@ -167,7 +167,9 @@ def main(argv):
     watch = Watch(csv_path=TIMINGS_PATH)
     results = Results(os.path.join(CONFIG_DIR, 'results'))
     settings = {'models': config['models'], 'default_model': config['default_model'],
-                'min_board_fill_percent': config['min_board_fill_percent']}
+                'min_board_fill_percent': config['min_board_fill_percent'],
+                'failed_photos_keep': config['failed_photos_keep'],
+                'failed_photos_dir': os.path.join(os.path.dirname(LOG_PATH), config['failed_photos_folder'])}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
     if args.once:

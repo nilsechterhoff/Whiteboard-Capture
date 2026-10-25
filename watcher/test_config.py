@@ -85,5 +85,20 @@ class AgileConfigTests(unittest.TestCase):
         self.assertEqual(len(cfg.validate({'agile_timer_reset_events': {'request': 'maybe'}})), 1)
 
 
+class FailedPhotosConfigTests(unittest.TestCase):
+
+    def test_defaults(self):
+        d = cfg.apply_defaults({})
+        self.assertEqual(d['failed_photos_keep'], 5)
+        self.assertEqual(d['failed_photos_folder'], 'failed-photos')
+
+    def test_keep_and_folder_are_checked(self):
+        self.assertEqual(cfg.validate({'failed_photos_keep': 0}), [])
+        self.assertEqual(len(cfg.validate({'failed_photos_keep': -1})), 1)
+        self.assertEqual(len(cfg.validate({'failed_photos_keep': '5'})), 1)
+        self.assertEqual(len(cfg.validate({'failed_photos_folder': '../x'})), 1)
+        self.assertEqual(len(cfg.validate({'failed_photos_folder': ''})), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -7,6 +7,8 @@ Python 3.9 standard library only.
 
 import logging
 import re
+
+import failed_photos
 import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
@@ -300,6 +302,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         return
     watch.camera_list(watch.clock() - started)
     reasons = []
+    rejected = []  # (camera, photo) of every try that was refused: kept for diagnosis
     described = False
     for index in camera_order([i for i, _ in devices], memory.index()):
         photo, error = capture_once_or_retry_dark(cameras, watch, index)
@@ -329,11 +332,13 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
                 else 'board fill missing')
             watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'), describe_s)
             reasons.append('camera %d: %s' % (index, label))
+            rejected.append((index, photo))
             continue
         if not body:
             watch.camera_try(index, 'describe: empty description', info.get('photo_s'),
                              info.get('brightness'), describe_s)
             reasons.append('camera %d: describe: empty description' % index)
+            rejected.append((index, photo))
             continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
         text = render_ok(number, fields, body) + '\n' + watch.block()
@@ -341,6 +346,12 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         memory.remember(index)
         deliver(store, watch, results, number, photo, text)
         return
+    if rejected:
+        try:
+            failed_photos.save_failed(settings.get('failed_photos_dir', ''), number, rejected,
+                                      settings.get('failed_photos_keep', 0))
+        except OSError as err:
+            LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
     code = 'DESCRIBE_FAILED' if described else 'CAMERA_FAILED'
     fail(store, watch, results, number, reasons or ['camera: no camera listed'], code)
 

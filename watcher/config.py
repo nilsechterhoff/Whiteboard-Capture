@@ -13,6 +13,8 @@ DEFAULTS = {
     'agile_timer_reset_events': {'request': 'yes'},
     'agile_session': 'no',                  # phase 2: yes | no
     'agile_session_restart_after_requests': 20,
+    'failed_photos_keep': 5,            # 0 = off
+    'failed_photos_folder': 'failed-photos',  # inside the log folder
 }
 
 
@@ -47,4 +49,10 @@ def validate(config):
     restart = config.get('agile_session_restart_after_requests', DEFAULTS['agile_session_restart_after_requests'])
     if not isinstance(restart, int) or isinstance(restart, bool) or restart <= 0:
         errors.append('agile_session_restart_after_requests must be a whole number above 0 (got %r)' % (restart,))
+    keep = config.get('failed_photos_keep', DEFAULTS['failed_photos_keep'])
+    if not isinstance(keep, int) or isinstance(keep, bool) or keep < 0:
+        errors.append('failed_photos_keep must be a whole number, 0 or more (got %r)' % (keep,))
+    folder = config.get('failed_photos_folder', DEFAULTS['failed_photos_folder'])
+    if not isinstance(folder, str) or not folder.strip() or '/' in folder or folder in ('.', '..'):
+        errors.append('failed_photos_folder must be a plain folder name (got %r)' % (folder,))
     return errors

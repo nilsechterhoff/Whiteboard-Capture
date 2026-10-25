@@ -4,5 +4,8 @@
 *.png
 .DS_Store
 
+# Photos of failed requests (kept on the Mac, never in Git)
+failed-photos/
+
 # Test photos and scratch files (never commit)
 scratch/
