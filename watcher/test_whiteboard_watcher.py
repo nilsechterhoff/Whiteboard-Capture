@@ -22,6 +22,7 @@ class FakeStore(object):
         self.files = {}
         self.events = []
         self.fail_upload_on = None  # substring; upload to a matching path raises
+        self.raise_on = {}          # substring -> exception to raise on upload
         self.mtimes = {}
         for name, text in (requests or {}).items():
             self.files['/Requests/' + name] = text.encode('utf-8')
@@ -42,6 +43,9 @@ class FakeStore(object):
         return self.files[path].decode('utf-8')
 
     def upload(self, path, data):
+        for part, error in self.raise_on.items():
+            if part in path:
+                raise error
         if self.fail_upload_on and self.fail_upload_on in path:
             raise IOError('simulated upload failure')
         self.events.append(('upload', path))
@@ -99,6 +103,26 @@ class FakeDescriber(object):
         if answer.startswith('ERR:'):
             raise ww.DescribeError(answer[4:])
         return answer
+
+
+class FakeResults(object):
+    """In-memory local copy: saved results, done markers."""
+
+    def __init__(self, saved=None):
+        self.saved = dict(saved or {})   # number -> (photo or None, text)
+        self.done = set()
+
+    def save(self, number, photo, text):
+        self.saved[number] = (photo, text)
+
+    def load(self, number):
+        return self.saved.get(number)
+
+    def mark_done(self, number):
+        self.done.add(number)
+
+    def is_done(self, number):
+        return number in self.done
 
 
 class FakeMemory(object):
@@ -203,13 +227,16 @@ class CameraOrderTests(unittest.TestCase):
 
 class ProcessTests(unittest.TestCase):
 
-    def run_one(self, store, cameras=None, describer=None, memory=None, settings=SETTINGS):
+    def run_one(self, store, cameras=None, describer=None, memory=None, settings=SETTINGS,
+                results=None):
         cameras = cameras or FakeCameras()
         describer = describer or FakeDescriber()
         memory = memory or FakeMemory()
         watch = Watch(machine='test-mac', clock=lambda: 1000.0)
-        handled = ww.process_pending(store, cameras, describer, memory, watch, NOW, settings)
+        results = results if results is not None else FakeResults()
+        handled = ww.process_pending(store, cameras, describer, memory, watch, results, NOW, settings)
         self.watch = watch
+        self.results = results
         return handled, cameras, describer, memory
 
     def description(self, store, number='0003'):
@@ -229,12 +256,16 @@ class ProcessTests(unittest.TestCase):
         self.assertIn('HELLO', desc)
         self.assertEqual(memory.remembered, [1])
 
-    def test_description_is_written_after_image(self):
+    def test_normal_order_is_description_then_image_then_status(self):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_one(store)
         moved = [dst for kind, dst in store.events if kind == 'move']
-        self.assertEqual(moved, ['/Images/image-0003.jpg',
-                                 '/Descriptions/description-0003.md'])
+        self.assertEqual(moved, ['/Descriptions/description-0003.md',
+                                 '/Images/image-0003.jpg',
+                                 '/status.md'])
+        self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
+        self.assertIn('description delivered: yes\nimage saved: yes\n', store.text('/status.md'))
+        self.assertIn('0003', self.results.done)
 
     def test_remembered_wrong_then_second_camera_works(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -508,7 +539,7 @@ class ProcessTests(unittest.TestCase):
         store.exists = flaky
         cameras = FakeCameras([0])
         watch = Watch(machine='test-mac', clock=lambda: 1000.0)
-        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, NOW, SETTINGS)
+        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, FakeResults(), NOW, SETTINGS)
         self.assertEqual(handled, ['0004'])
 
     def test_network_error_on_listing_requests_does_not_raise(self):
@@ -519,7 +550,7 @@ class ProcessTests(unittest.TestCase):
         store.list_names = down
         cameras = FakeCameras([0])
         watch = Watch(machine='test-mac', clock=lambda: 1000.0)
-        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, NOW, SETTINGS)
+        handled = ww.process_pending(store, cameras, FakeDescriber(), FakeMemory(), watch, FakeResults(), NOW, SETTINGS)
         self.assertEqual(handled, [])
         self.assertEqual(cameras.captures, [])
 
@@ -528,6 +559,130 @@ class ProcessTests(unittest.TestCase):
         cameras = FakeCameras([0, 1], plan={0: 'no frame'})
         _, cameras, _, _ = self.run_one(store, cameras)
         self.assertEqual(cameras.captures, [0, 1])
+
+
+class OrderAndStatusTests(unittest.TestCase):
+
+    def run_pass(self, store, cameras=None, describer=None, results=None):
+        cameras = cameras or FakeCameras()
+        describer = describer or FakeDescriber()
+        results = results if results is not None else FakeResults()
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        ww.process_pending(store, cameras, describer, FakeMemory(), watch, results, NOW, SETTINGS)
+        return cameras, describer, results
+
+    def status(self, store):
+        return store.text('/status.md')
+
+    def test_status_is_written_last_with_code_on_error(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_pass(store, FakeCameras([0], plan={0: 'no frame'}))
+        text = self.status(store)
+        self.assertEqual(text.splitlines()[0], 'status: error')
+        self.assertIn('last request: 0003', text)
+        self.assertIn('code: CAMERA_FAILED', text)
+        self.assertIn('description delivered: yes', text)
+        self.assertIn('image saved: no', text)
+
+    def test_describe_failure_status_code(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_pass(store, FakeCameras([0]), FakeDescriber(default='whiteboard: no'))
+        self.assertIn('code: DESCRIBE_FAILED', self.status(store))
+
+    def test_crash_after_describe_is_unknown_error_and_never_described_twice(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.raise_on = {'/Descriptions/': ValueError('boom')}
+        cameras, describer, results = self.run_pass(store)
+        self.assertIn('code: UNKNOWN_ERROR', self.status(store))
+        self.assertIn('0003', results.done)
+        cameras2, describer2, _ = self.run_pass(store, results=results)
+        self.assertEqual(cameras2.captures, [])
+        self.assertEqual(describer2.calls, [])
+
+    def test_restart_after_describe_uploads_description_from_local_copy_no_new_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        results = FakeResults({'0003': (b'saved-photo', 'status: ok\nrequest: "0003"\n\nbody\n')})
+        cameras, describer, results = self.run_pass(store, results=results)
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        self.assertTrue(store.exists('/Descriptions/description-0003.md'))
+        self.assertEqual(store.files['/Images/image-0003.jpg'], b'saved-photo')
+        self.assertIn('status: ok', self.status(store))
+
+    def test_crash_after_description_upload_retries_only_the_image_once(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.raise_on = {'/Images/': ValueError('boom')}
+        cameras, describer, results = self.run_pass(store)
+        self.assertIn('code: UNKNOWN_ERROR', self.status(store))
+        self.assertTrue(store.exists('/Descriptions/description-0003.md'))
+        self.assertIsNotNone(results.load('0003')[0])
+        store.raise_on = {}
+        cameras2, describer2, _ = self.run_pass(store, results=results)
+        self.assertEqual(cameras2.captures, [])
+        self.assertEqual(describer2.calls, [])
+
+    def test_image_upload_failing_twice_gives_image_error_and_keeps_local_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.fail_upload_on = '/Images/'
+        cameras, describer, results = self.run_pass(store)
+        self.assertEqual(describer.calls.__len__(), 1)
+        self.assertFalse(store.exists('/Images/image-0003.jpg'))
+        self.assertTrue(store.exists('/Descriptions/description-0003.md'))
+        self.assertIsNotNone(results.load('0003')[0])
+        text = self.status(store)
+        self.assertIn('code: IMAGE_UPLOAD_FAILED', text)
+        self.assertIn('description delivered: yes', text)
+        self.assertIn('0003', results.done)
+
+    def test_image_retry_on_restart_failing_gives_image_error(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/Descriptions/description-0003.md'] = b'status: ok\n'
+        results = FakeResults({'0003': (b'saved-photo', 'text')})
+        store.fail_upload_on = '/Images/'
+        self.run_pass(store, results=results)
+        self.assertFalse(store.exists('/Images/image-0003.jpg'))
+        self.assertIn('code: IMAGE_UPLOAD_FAILED', self.status(store))
+        self.assertIn('0003', results.done)
+
+    def test_description_upload_failure_keeps_local_copy_and_retries_later_without_photo(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.fail_upload_on = '/Descriptions/'
+        cameras, describer, results = self.run_pass(store)
+        self.assertIn('code: DESCRIPTION_UPLOAD_FAILED', self.status(store))
+        self.assertNotIn('0003', results.done)
+        self.assertEqual(len(describer.calls), 1)
+        store.fail_upload_on = None
+        cameras2, describer2, _ = self.run_pass(store, results=results)
+        self.assertEqual(describer2.calls, [])
+        self.assertEqual(cameras2.captures, [])
+        self.assertTrue(store.exists('/Descriptions/description-0003.md'))
+        self.assertTrue(store.exists('/Images/image-0003.jpg'))
+        self.assertIn('status: ok', self.status(store))
+
+    def test_unexpected_exception_in_describe_is_unknown_error(self):
+        class Broken(object):
+            def describe(self, photo, fields):
+                raise RuntimeError('bad state')
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_pass(store, describer=Broken())
+        text = self.status(store)
+        self.assertIn('code: UNKNOWN_ERROR', text)
+        self.assertIn('RuntimeError', text)
+
+    def test_old_order_image_without_description_is_unknown_error(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/Images/image-0003.jpg'] = b'old'
+        cameras, describer, _ = self.run_pass(store)
+        self.assertEqual(cameras.captures, [])
+        self.assertIn('code: UNKNOWN_ERROR', self.status(store))
+        self.assertIn('reason: interrupted before the description was written',
+                      store.text('/Descriptions/description-0003.md'))
+
+    def test_status_first_line_is_exact_and_no_notification_is_sent(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        self.run_pass(store)
+        self.assertEqual(self.status(store).splitlines()[0], 'status: ok')
+        self.assertEqual(sorted(p for p in store.files if not p.startswith(('/Requests', '/Descriptions', '/Images', '/status'))), [])
 
 
 if __name__ == '__main__':

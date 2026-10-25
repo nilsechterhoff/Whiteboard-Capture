@@ -65,7 +65,6 @@ class Watch(object):
             if describe_s is not None:
                 extra.append('describe %s' % secs(describe_s))
             lines.append('camera %d: %s (%s)' % (index, result, ', '.join(extra)))
-        lines.append('image upload: %s' % secs(self.image_upload_s))
         lines.append('total before description upload: %s' % secs(self.elapsed()))
         return '\n'.join(lines) + '\n'
 

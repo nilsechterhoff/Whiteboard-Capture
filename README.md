@@ -14,7 +14,8 @@ Voice mode cannot view images (tested), so a separate **image agent** turns a fr
 | 2 | Decisions | ADR-0006, ADR-0008 (`accepted` 2026-10-22); ADR-0007 superseded by ADR-0008 |
 | 2a | Build brief for Claude Code | [project/handover/brief-build-mvp-b-watcher.md](project/handover/brief-build-mvp-b-watcher.md) |
 | 3 | Rules for the voice agent | `Whiteboard/instructions.md` in Dropbox (source of truth) |
-| 4 | Status | Voice side built and tested; watcher and describe step built. Background service installed and running (launchd), camera warm-up and one dark-frame retry added (2026-10-23). Time from request to description still above the 10 s target ([backlog](project/backlog.md) BL-016 to BL-018, BL-022, BL-023) |
+| 4 | Status | Voice side built and tested; watcher and describe step built. Background service installed and running (launchd). Upload order changed: description first, then image, then `status.md` (2026-10-25). Time from request to description still above the 10 s target ([backlog](project/backlog.md) BL-016 to BL-018, BL-022, BL-023) |
+| 4a | Status file | `status.md` in the app folder root, rewritten at the end of every request. First line `status: ok` or `status: error`; on error one code: IMAGE_UPLOAD_FAILED, DESCRIPTION_UPLOAD_FAILED, CAMERA_FAILED, DESCRIBE_FAILED, UNKNOWN_ERROR |
 | 5 | Folder deviation | `instructions.md` stays at `/Whiteboard/` in Dropbox (user settings point there). The working folders `Requests/`, `Images/`, `Descriptions/` are in `/Apps/Whiteboard-Capture/` (brief section 4 says all move; decided by Nils 2026-10-22) |
 
 ## Earlier pipeline (timed capture, parked)
