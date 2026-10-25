@@ -18,6 +18,33 @@ Voice mode cannot view images (tested), so a separate **image agent** turns a fr
 | 4a | Status file | `status.md` in the app folder root, rewritten at the end of every request. First line `status: ok` or `status: error`; on error one code: IMAGE_UPLOAD_FAILED, DESCRIPTION_UPLOAD_FAILED, CAMERA_FAILED, DESCRIBE_FAILED, UNKNOWN_ERROR |
 | 5 | Folder deviation | `instructions.md` stays at `/Whiteboard/` in Dropbox (user settings point there). The working folders `Requests/`, `Images/`, `Descriptions/` are in `/Apps/Whiteboard-Capture/` (brief section 4 says all move; decided by Nils 2026-10-22) |
 
+## Goals and non-goals
+
+Design criteria for MVP B, collected from decisions with Nils (2026-10-22 to 2026-10-25). Details and reasons live in the ADRs; this is the short list.
+
+| Line # | Goal | Meaning |
+|---|---|---|
+| 1 | **Hands-free** | Everything works in live voice mode: no typing, no push-to-talk, no clicks. Errors reach the user through the voice agent, not through notifications that need a mouse or keyboard |
+| 2 | **Reliable before clever** | Few moving parts that can silently stop. Failures are visible: `status.md` shows `status: ok` or `status: error` with a code, and the voice agent speaks up when it is anything other than ok |
+| 3 | **On demand, lean** | Nothing runs between requests that costs tokens. Only the describe step uses AI |
+| 4 | **Voice reads text** | Voice mode cannot view images (tested), so a description file in Dropbox is the bridge |
+| 5 | **Dropbox only** | No self-built or self-hosted connector. Request, image, description and status travel as files |
+| 6 | **User-agnostic** | Nothing user-specific in code: names, hostnames and paths come from the config, so a friend can set it up |
+| 7 | **System-agnostic** | Mac first, Windows PC later. OS-specific code stays in the camera function and the service setup |
+| 8 | **Camera-agnostic** | The camera is found by what it shows (ADR-0009), not by an ID. Optional `camera_name` filter in the config |
+| 9 | **Private by default** | Images, tokens and keys never go into Git. No whiteboard content in logs |
+| 10 | **Measurable** | Every request records its step times (stopwatch), so speed can be reviewed over time |
+
+| Line # | Non-goal (for now) | Note |
+|---|---|---|
+| 1 | A finished product | Good enough for a few months |
+| 2 | Continuous capture or description | Ideas are parked in BL-026 (warm camera, capture mode on/off, open agent session) |
+| 3 | `mode: diff` | Placeholder only; the image agent cannot compare photos yet |
+| 4 | Notifications | Deliberately not used, see goal 1 |
+| 5 | Windows version | Designed for, not built (BL-024) |
+
+**Known gaps against these goals** (found 2026-10-25, not yet fixed): Mac-only paths in `watcher/whiteboard_watcher.py`; user name, `launchctl` and a Homebrew path in `watcher/setup_dropbox.py`; the `avfoundation` input in `watcher/camera.py`. Time from request to description is still above the 10 s target.
+
 ## Earlier pipeline (timed capture, parked)
 
 Captures a frame every ~20 s so Claude can read it in text mode. Built and tested with a stub; ADR-0002, ADR-0003 and ADR-0005 are superseded by ADR-0007.
