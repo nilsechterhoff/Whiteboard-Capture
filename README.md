@@ -159,4 +159,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | superseded by ADR-0008 |
 | 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
 | 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
+| 10 | 0011 | [Agile mode: keep the camera and the describe session open while Nils brainstorms](docs/decisions/0011-agile-mode-with-an-open-camera-and-session.md) | proposed (Nils sets the status) |
 | 10 | 0010 | [Use a time connector as the voice agent's clock](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md) | accepted |
