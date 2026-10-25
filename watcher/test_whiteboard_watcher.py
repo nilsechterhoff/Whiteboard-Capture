@@ -678,6 +678,15 @@ class OrderAndStatusTests(unittest.TestCase):
         self.assertIn('reason: interrupted before the description was written',
                       store.text('/Descriptions/description-0003.md'))
 
+    def test_complete_older_request_is_marked_done_without_a_status(self):
+        store = FakeStore({'request-0003.yaml': VALID})
+        store.files['/Descriptions/description-0003.md'] = b'status: ok\n'
+        store.files['/Images/image-0003.jpg'] = b'old'
+        cameras, describer, results = self.run_pass(store)
+        self.assertIn('0003', results.done)
+        self.assertFalse(store.exists('/status.md'))
+        self.assertEqual(cameras.captures, [])
+
     def test_status_first_line_is_exact_and_no_notification_is_sent(self):
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_pass(store)

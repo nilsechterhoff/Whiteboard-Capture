@@ -337,7 +337,10 @@ def process_pending(store, cameras, describer, memory, watch, results, now, sett
             if results.is_done(number):
                 continue
             if store.exists(description_path(number)):
-                resume_image(store, watch, results, number)
+                if store.exists(image_path(number)):
+                    results.mark_done(number)  # already complete (older run): no status needed
+                else:
+                    resume_image(store, watch, results, number)
                 continue
             modified = store.modified(request_path(name))
             watch.begin(number, now - modified)
