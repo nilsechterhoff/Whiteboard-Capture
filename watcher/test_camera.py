@@ -105,14 +105,14 @@ class CaptureTests(unittest.TestCase):
 
     def test_command_uses_index_and_rotation(self):
         fake = FakeFfmpeg(brightness={'frame-1.jpg': 120.0})
-        cam.capture(1, self.folder, rotate=True, run=fake)
+        cam.capture(1, self.folder, rotation_degrees=180, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertIn('1:none', capture_cmd)
         self.assertIn('hflip,vflip', capture_cmd)
 
     def test_rotation_off_has_no_flip(self):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 120.0})
-        cam.capture(0, self.folder, rotate=False, run=fake)
+        cam.capture(0, self.folder, rotation_degrees=0, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertNotIn('-vf', capture_cmd)
         self.assertNotIn('hflip', capture_cmd)
@@ -154,7 +154,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_cameras_class_passes_settings_through(self):
         fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})
-        cameras = cam.Cameras(self.folder, 'c930', rotate=False, dark_below=10, run=fake)
+        cameras = cam.Cameras(self.folder, 'c930', rotation_degrees=0, dark_below=10, run=fake)
         self.assertEqual(cameras.capture(4), b'jpeg-1')
         self.assertEqual(cameras.list(), [(0, 'Logitech Webcam C930e'),
                                           (1, 'Logitech Webcam C930e')])

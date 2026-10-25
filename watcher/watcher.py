@@ -7,7 +7,7 @@ Usage:
 
 Config: ~/Library/Application Support/whiteboard-watcher/config.json
   app_key, app_secret, refresh_token (from setup_dropbox.py)
-  camera_name (optional, default all cameras), rotate_180 (default true), dark_below (default 20)
+  camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
 Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
         ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
@@ -30,6 +30,7 @@ from describe import Describer             # noqa: E402
 from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
 from results import Results                # noqa: E402
+import config as config_mod                # noqa: E402
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -55,13 +56,16 @@ def setup_logging():
 def load_config():
     with open(CONFIG_PATH) as handle:
         config = json.load(handle)
+    config_mod.apply_defaults(config)
     for key in ('app_key', 'app_secret', 'refresh_token', 'models', 'default_model'):
         if not config.get(key):
             raise SystemExit('config is missing %s; run setup_dropbox.py' % key)
+    errors = config_mod.validate(config)
+    if errors:
+        raise SystemExit('config: ' + '; '.join(errors))
     if config['default_model'] not in config['models']:
         raise SystemExit('default_model must be one of: %s' % ', '.join(sorted(config['models'])))
     config.setdefault('camera_name', '')
-    config.setdefault('rotate_180', True)
     config.setdefault('dark_below', cam.DARK_BELOW)
     return config
 
@@ -134,7 +138,7 @@ def main(argv):
         return 1
 
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
-    cameras = Timed(cam.Cameras(WORK_DIR, config['camera_name'], config['rotate_180'],
+    cameras = Timed(cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'],
                                 config['dark_below']), 'camera')
     describer = Timed(Describer(WORK_DIR, config['models']), 'describe')
     memory = Memory()

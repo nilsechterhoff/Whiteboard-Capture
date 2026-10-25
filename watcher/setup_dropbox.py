@@ -33,7 +33,7 @@ DEFAULT_SETTINGS = {
     'models': {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'},
     'default_model': 'haiku',
     'camera_name': '',
-    'rotate_180': True,
+    'rotation_degrees': 0,
     'dark_below': 20,
 }
 AUTHORIZE_URL = 'https://www.dropbox.com/oauth2/authorize'
