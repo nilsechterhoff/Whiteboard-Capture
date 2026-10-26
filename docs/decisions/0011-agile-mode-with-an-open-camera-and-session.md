@@ -1,6 +1,6 @@
 ---
-status: "proposed"
-date: 2026-10-25
+status: "accepted"
+date: 2026-10-26
 decision-makers: Nils Echterhoff
 consulted: Claude (AI assistant)
 ---
