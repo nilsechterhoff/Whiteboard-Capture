@@ -11,6 +11,13 @@ Follow [nilsechterhoff/standards](https://github.com/nilsechterhoff/standards). 
 
 Tasks and open ideas go to `project/backlog.md`, not into ADRs.
 
+## Vocabulary
+
+| Line # | Word | Use for |
+|---|---|---|
+| 1 | **test** | Build-time work only: test runs we start to learn something or to verify a change, and the test files in the repo. State the hypothesis before each test, and what new hypothesis a failure would trigger. A failed test questions our implementation first, not the underlying concept. |
+| 2 | **check** | Anything the finished program does itself at run time, following fixed rules: board check, brightness (dark-frame) check, fill check, status check. A check has a defined result and does not experiment. |
+
 ## Locations
 
 | Line # | What | Where |
