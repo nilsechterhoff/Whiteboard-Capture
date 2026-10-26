@@ -12,7 +12,11 @@ import select
 import subprocess
 import time
 
+import logging
+
 from whiteboard_watcher import DescribeError
+
+LOG = logging.getLogger('whiteboard')
 
 CLAUDE = 'claude'
 TIMEOUT = 120         # hard limit per run, seconds
@@ -158,11 +162,15 @@ class SessionDescriber(object):
         try:
             if (self.proc is None or self.model != fields['model'] or self.count >= self.restart_after
                     or self.proc.poll() is not None):
+                LOG.info('session: started (model %s)' % fields['model'])
                 self._start(fields['model'])
+            else:
+                LOG.info('session: reused (request %d in this session)' % (self.count + 1))
             text = self._ask(photo, fields)
             self.count += 1
             return text
-        except (DescribeError, OSError, ValueError):
+        except (DescribeError, OSError, ValueError) as err:
+            LOG.info('session: check failed (%s); lean describe once' % err)
             self._stop()
             return self.lean.describe(photo, fields)
 

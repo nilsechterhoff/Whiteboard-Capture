@@ -35,7 +35,7 @@ DEFAULT_SETTINGS = {
     'camera_name': '',
     'rotation_degrees': 0,
     'min_board_fill_percent': 0,
-    'mode': 'lean',
+    'agile_enabled': 'no',
     'agile_idle_timeout_seconds': 600,
     'agile_timer_reset_events': {'request': 'yes'},
     'dark_below': 20,

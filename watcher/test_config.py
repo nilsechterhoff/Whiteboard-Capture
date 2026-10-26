@@ -72,17 +72,55 @@ class BoardFillConfigTests(unittest.TestCase):
 
 class AgileConfigTests(unittest.TestCase):
 
-    def test_defaults_are_lean_and_ten_minutes(self):
+    def test_defaults_are_off_and_ten_minutes(self):
         d = cfg.apply_defaults({})
-        self.assertEqual(d['mode'], 'lean')
+        self.assertEqual(d['agile_enabled'], 'no')
         self.assertEqual(d['agile_idle_timeout_seconds'], 600)
         self.assertEqual(d['agile_timer_reset_events'], {'request': 'yes'})
+        self.assertFalse(cfg.agile_on(d))
+        self.assertFalse(cfg.session_on(d))
 
-    def test_mode_and_timeout_and_events_are_checked(self):
-        self.assertEqual(cfg.validate({'mode': 'agile'}), [])
-        self.assertEqual(len(cfg.validate({'mode': 'turbo'})), 1)
+    def test_values_are_checked(self):
+        self.assertEqual(cfg.validate({'agile_enabled': 'yes'}), [])
+        self.assertEqual(len(cfg.validate({'agile_enabled': 'maybe'})), 1)
+        self.assertEqual(len(cfg.validate({'agile_enabled': True})), 1)
         self.assertEqual(len(cfg.validate({'agile_idle_timeout_seconds': 0})), 1)
         self.assertEqual(len(cfg.validate({'agile_timer_reset_events': {'request': 'maybe'}})), 1)
+
+    def test_disabled_means_lean_even_with_session_on(self):
+        c = cfg.apply_defaults({'agile_enabled': 'no', 'agile_session': 'yes'})
+        self.assertFalse(cfg.agile_on(c))
+        self.assertFalse(cfg.session_on(c))
+
+    def test_enabled_turns_agile_on_and_session_only_with_it(self):
+        self.assertTrue(cfg.agile_on({'agile_enabled': 'yes'}))
+        self.assertFalse(cfg.session_on({'agile_enabled': 'yes'}))
+        self.assertTrue(cfg.session_on({'agile_enabled': 'yes', 'agile_session': 'yes'}))
+
+
+class LegacyModeTests(unittest.TestCase):
+
+    def test_mode_agile_becomes_enabled_with_a_warning(self):
+        c = {'mode': 'agile'}
+        warnings = cfg.normalize(c)
+        self.assertEqual(c['agile_enabled'], 'yes')
+        self.assertNotIn('mode', c)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('agile_enabled', warnings[0])
+
+    def test_any_other_mode_becomes_disabled(self):
+        for old in ('lean', 'turbo', None):
+            c = {'mode': old}
+            cfg.normalize(c)
+            self.assertEqual(c['agile_enabled'], 'no')
+
+    def test_explicit_agile_enabled_wins_over_mode(self):
+        c = {'mode': 'agile', 'agile_enabled': 'no'}
+        cfg.normalize(c)
+        self.assertEqual(c['agile_enabled'], 'no')
+
+    def test_no_mode_key_means_no_warning(self):
+        self.assertEqual(cfg.normalize({'agile_enabled': 'yes'}), [])
 
 
 class FailedPhotosConfigTests(unittest.TestCase):

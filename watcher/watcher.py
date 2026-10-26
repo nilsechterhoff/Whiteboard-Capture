@@ -47,6 +47,7 @@ TIMINGS_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher-timings.csv
 POLL_SECONDS = 1
 
 log = logging.getLogger('whiteboard')
+LEGACY_WARNINGS = []  # filled by load_config, logged once the log is set up
 
 
 def setup_logging():
@@ -61,6 +62,8 @@ def setup_logging():
 def load_config():
     with open(CONFIG_PATH) as handle:
         config = json.load(handle)
+    for warning in config_mod.normalize(config):
+        LEGACY_WARNINGS.append(warning)
     config_mod.apply_defaults(config)
     for key in ('app_key', 'app_secret', 'refresh_token', 'models', 'default_model'):
         if not config.get(key):
@@ -139,6 +142,8 @@ def main(argv):
     args = parser.parse_args(argv)
     setup_logging()
     config = load_config()
+    for warning in LEGACY_WARNINGS:
+        log.warning(warning)
     os.makedirs(WORK_DIR, mode=0o700, exist_ok=True)
     lock = open(LOCK_PATH, 'w')
     try:
@@ -149,7 +154,7 @@ def main(argv):
 
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
     lean = cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'], config['dark_below'])
-    if config['mode'] == 'agile':
+    if config_mod.agile_on(config):
         agile = agile_mod.AgileCameras(WORK_DIR, lean, config['rotation_degrees'], config['dark_below'],
                                        config['agile_idle_timeout_seconds'], config['agile_timer_reset_events'])
         atexit.register(agile.close)
@@ -158,7 +163,7 @@ def main(argv):
     else:
         cameras = Timed(lean, 'camera')
     lean_describer = Describer(WORK_DIR, config['models'])
-    if config['mode'] == 'agile' and config['agile_session'] == 'yes':
+    if config_mod.session_on(config):
         describer = Timed(describe_mod.SessionDescriber(
             WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests']), 'describe')
     else:

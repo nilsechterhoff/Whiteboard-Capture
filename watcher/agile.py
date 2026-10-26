@@ -12,8 +12,12 @@ import os
 import subprocess
 import time
 
+import logging
+
 import camera as cam
 from whiteboard_watcher import CameraError, DarkFrameError
+
+LOG = logging.getLogger('whiteboard')
 
 START_WAIT = 6.0  # seconds to wait for the first frame after a wake-up
 
@@ -47,15 +51,19 @@ class AgileCameras(object):
     def capture(self, index):
         try:
             if self.proc is None or self.index != index or self.proc.poll() is not None:
+                LOG.info('agile: stream started for camera %d (wake-up)' % index)
                 self._start(index)
                 self._wait_for_first_frame()
+            else:
+                LOG.info('agile: reused open stream for camera %d' % index)
             photo, brightness = cam.get_newest_frame(self.path, self.clock(), dark_below=self.dark_below,
                                                      run=self.run)
             self.last = {'brightness': brightness}
             return photo
         except DarkFrameError:
             raise
-        except CameraError:
+        except CameraError as err:
+            LOG.info('agile: check failed (%s); lean path once' % err)
             self._stop()
             photo = self.lean.capture(index)      # fallback: the lean path, once
             self.last = dict(getattr(self.lean, 'last', {}))
