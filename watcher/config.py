@@ -8,7 +8,7 @@ import camera as cam
 DEFAULTS = {
     'rotation_degrees': 0,
     'min_board_fill_percent': 0,  # 0 = off
-    'mode': 'lean',               # lean | agile
+    'agile_enabled': 'no',        # yes: a request may start or reuse agile mode; no: always lean
     'agile_idle_timeout_seconds': 600,
     'agile_timer_reset_events': {'request': 'yes'},
     'agile_session': 'no',                  # phase 2: yes | no
@@ -24,6 +24,29 @@ def apply_defaults(config):
     return config
 
 
+def normalize(config):
+    """Old key `mode`: `mode: agile` becomes agile_enabled yes, anything else no.
+    Returns the warnings to log (one per use of the old key). Never raises."""
+    warnings = []
+    if 'mode' in config:
+        if 'agile_enabled' not in config:
+            config['agile_enabled'] = 'yes' if config.get('mode') == 'agile' else 'no'
+        warnings.append('config key mode is replaced by agile_enabled (set to %s); remove mode'
+                        % config['agile_enabled'])
+        config.pop('mode', None)
+    return warnings
+
+
+def agile_on(config):
+    """A request may start or reuse agile mode. Lean is the base; this is only the upgrade."""
+    return config.get('agile_enabled', DEFAULTS['agile_enabled']) == 'yes'
+
+
+def session_on(config):
+    """The long-lived describe session, only ever used while agile is allowed."""
+    return agile_on(config) and config.get('agile_session', DEFAULTS['agile_session']) == 'yes'
+
+
 def validate(config):
     """Return a list of error messages; an empty list means the config is valid."""
     errors = []
@@ -34,9 +57,9 @@ def validate(config):
     fill = config.get('min_board_fill_percent', DEFAULTS['min_board_fill_percent'])
     if not isinstance(fill, int) or isinstance(fill, bool) or not 0 <= fill <= 100:
         errors.append('min_board_fill_percent must be a whole number from 0 to 100 (got %r)' % (fill,))
-    mode = config.get('mode', DEFAULTS['mode'])
-    if mode not in ('lean', 'agile'):
-        errors.append('mode must be lean or agile (got %r)' % (mode,))
+    enabled = config.get('agile_enabled', DEFAULTS['agile_enabled'])
+    if enabled not in ('yes', 'no'):
+        errors.append('agile_enabled must be yes or no (got %r)' % (enabled,))
     timeout = config.get('agile_idle_timeout_seconds', DEFAULTS['agile_idle_timeout_seconds'])
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         errors.append('agile_idle_timeout_seconds must be a whole number above 0 (got %r)' % (timeout,))

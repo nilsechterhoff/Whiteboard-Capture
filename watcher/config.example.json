@@ -12,9 +12,9 @@
     "opus": "claude-opus-5-5"
   },
   "min_board_fill_percent": 0,
-  "mode": "lean",
   "agile_idle_timeout_seconds": 600,
   "agile_timer_reset_events": {
     "request": "yes"
-  }
+  },
+  "agile_enabled": "no"
 }
