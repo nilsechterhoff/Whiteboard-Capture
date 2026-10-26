@@ -82,6 +82,7 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 5 | MVP B last working camera (hint only) | `~/Library/Application Support/whiteboard-watcher/last_camera.json` |
 | 6 | MVP B watcher log | `~/Library/Logs/whiteboard-watcher.log` |
 | 7 | MVP B timing log (one row per request, no whiteboard content) | `~/Library/Logs/whiteboard-watcher-timings.csv` |
+| 8a | MVP B watcher settings | `watcher/config.example.json` (no secrets). `rotation_degrees`: 0, 90, 180 or 270; default 0 (Nils's config: 180). Any other value stops the watcher with a clear message |
 | 8 | MVP B background service (after your yes) | `~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist` and `~/Library/Logs/whiteboard-watcher.launchd.log`. Install: `python3 watcher/setup_dropbox.py --service`. Remove: `python3 watcher/setup_dropbox.py --uninstall` |
 | 4 | Lessons and camera facts (old camera branch) | [project/lessons-and-camera-facts.md](project/lessons-and-camera-facts.md) |
 
@@ -158,4 +159,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 7 | 0007 | [Use a Dropbox request and description loop, on demand](docs/decisions/0007-use-a-dropbox-request-and-description-loop-on-demand.md) | superseded by ADR-0008 |
 | 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
 | 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
+| 10 | 0011 | [Agile mode: keep the camera and the describe session open while Nils brainstorms](docs/decisions/0011-agile-mode-with-an-open-camera-and-session.md) | proposed (Nils sets the status) |
 | 10 | 0010 | [Use a time connector as the voice agent's clock](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md) | accepted |

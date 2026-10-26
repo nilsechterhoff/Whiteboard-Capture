@@ -5,7 +5,10 @@ test_whiteboard_watcher.py), so the logic is tested without network or hardware.
 Python 3.9 standard library only.
 """
 
+import logging
 import re
+
+import failed_photos
 import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
@@ -98,6 +101,20 @@ def split_answer(text):
     if first == WHITEBOARD_NO:
         return False, body
     raise DescribeError('answer did not start with a whiteboard line')
+
+
+def split_fill(body):
+    """Take the 'fill: NN' line out of the describe body (it must be among the first two lines).
+    Returns (fill as int 0 to 100, or None if missing or unparsable; body without that line).
+    A missing or unparsable value is None: with the check on, it counts as a failed check."""
+    lines = body.splitlines()
+    for i, line in enumerate(lines[:2]):
+        match = re.match(r'^\s*fill\s*:\s*(\d{1,3})\s*%?\s*$', line, re.IGNORECASE)
+        if match:
+            value = int(match.group(1))
+            rest = '\n'.join(lines[:i] + lines[i + 1:]).strip()
+            return (value if value <= 100 else None), rest
+    return None, body
 
 
 def camera_order(indices, remembered):
@@ -255,6 +272,16 @@ def capture_once_or_retry_dark(cameras, watch, index):
     return None, error
 
 
+LOG = logging.getLogger('whiteboard')
+
+
+def board_passes(is_board, fill, min_fill):
+    """A camera passes only with a yes answer and, if the check is on, a fill at or above the setting."""
+    if not is_board:
+        return False
+    return min_fill == 0 or (fill is not None and fill >= min_fill)
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -275,6 +302,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         return
     watch.camera_list(watch.clock() - started)
     reasons = []
+    rejected = []  # (camera, photo) of every try that was refused: kept for diagnosis
     described = False
     for index in camera_order([i for i, _ in devices], memory.index()):
         photo, error = capture_once_or_retry_dark(cameras, watch, index)
@@ -285,7 +313,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         started = watch.clock()
         described = True
         try:
-            is_board, body = split_answer(describer.describe(photo, fields))
+            raw = describer.describe(photo, fields)
+            is_board, body = split_answer(raw)
+            fill, body = split_fill(body)
         except DescribeError as err:
             describe_s = watch.clock() - started
             watch.camera_try(index, 'describe error: %s' % err, info.get('photo_s'),
@@ -293,15 +323,22 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             reasons.append('camera %d: describe: %s' % (index, err))
             continue
         describe_s = watch.clock() - started
-        if not is_board:
-            watch.camera_try(index, 'not a whiteboard', info.get('photo_s'),
-                             info.get('brightness'), describe_s)
-            reasons.append('camera %d: not a whiteboard' % index)
+        min_fill = settings.get('min_board_fill_percent', 0)
+        LOG.info('request %s camera %d raw answer: %r; fill %s; check %s'
+                 % (number, index, raw, fill, min_fill or 'off'))
+        if not board_passes(is_board, fill, min_fill):
+            label = 'not a whiteboard' if not is_board else (
+                'board fill %s below %d' % (fill, min_fill) if fill is not None
+                else 'board fill missing')
+            watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'), describe_s)
+            reasons.append('camera %d: %s' % (index, label))
+            rejected.append((index, photo))
             continue
         if not body:
             watch.camera_try(index, 'describe: empty description', info.get('photo_s'),
                              info.get('brightness'), describe_s)
             reasons.append('camera %d: describe: empty description' % index)
+            rejected.append((index, photo))
             continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
         text = render_ok(number, fields, body) + '\n' + watch.block()
@@ -309,6 +346,12 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         memory.remember(index)
         deliver(store, watch, results, number, photo, text)
         return
+    if rejected:
+        try:
+            failed_photos.save_failed(settings.get('failed_photos_dir', ''), number, rejected,
+                                      settings.get('failed_photos_keep', 0))
+        except OSError as err:
+            LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
     code = 'DESCRIBE_FAILED' if described else 'CAMERA_FAILED'
     fail(store, watch, results, number, reasons or ['camera: no camera listed'], code)
 

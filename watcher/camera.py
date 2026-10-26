@@ -20,6 +20,8 @@ BRIGHTNESS_TIMEOUT = 10
 FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
 SIZE = '1920x1080'
 DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
+# rotation_degrees (config) -> ffmpeg filters; 0 = none
+ROTATION_FILTERS = {0: [], 90: ['transpose=1'], 180: ['hflip', 'vflip'], 270: ['transpose=2']}
 DEVICE = re.compile(r'\[(\d+)\] (.+)$')
 NOT_CAMERAS = ('Capture screen',)  # screen recording is not a camera
 BRIGHTNESS = re.compile(r'lavfi\.signalstats\.YAVG=([0-9.]+)')
@@ -72,7 +74,14 @@ def mean_brightness(path, run=subprocess.run):
     return float(match.group(1))
 
 
-def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.run, timing=None):
+def rotation_filters(degrees):
+    """ffmpeg filters for a rotation in degrees. Any other value is refused."""
+    if degrees not in ROTATION_FILTERS:
+        raise ValueError('rotation_degrees must be one of 0, 90, 180, 270 (got %r)' % (degrees,))
+    return list(ROTATION_FILTERS[degrees])
+
+
+def capture(index, folder, rotation_degrees=0, dark_below=DARK_BELOW, run=subprocess.run, timing=None):
     """One photo from camera `index` as JPEG bytes. Raises CameraError.
 
     The first frame is the photo (no warm-up: a working camera is bright from the start).
@@ -84,8 +93,9 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
     last = os.path.join(folder, 'frame-%d.jpg' % index)
     cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
            '-framerate', FRAMERATE, '-video_size', SIZE, '-i', '%d:none' % index]
-    if rotate:
-        cmd += ['-vf', 'hflip,vflip']
+    filters = rotation_filters(rotation_degrees)
+    if filters:
+        cmd += ['-vf', ','.join(filters)]
     cmd += ['-frames:v', '1', '-y', last]
     try:
         started = time.time()
@@ -113,6 +123,29 @@ def capture(index, folder, rotate=True, dark_below=DARK_BELOW, run=subprocess.ru
             pass
 
 
+def stream_command(index, folder, rotation_degrees=0):
+    """ffmpeg command that keeps one camera open and rewrites its newest frame (about 2 per second).
+    Returns (command, path of the newest frame)."""
+    out = os.path.join(folder, 'agile-%d.jpg' % index)
+    filters = rotation_filters(rotation_degrees) + ['fps=2']
+    cmd = [FFMPEG, '-hide_banner', '-loglevel', 'error', '-f', 'avfoundation',
+           '-framerate', FRAMERATE, '-video_size', SIZE, '-i', '%d:none' % index,
+           '-vf', ','.join(filters), '-update', '1', '-atomic_writing', '1', '-y', out]
+    return cmd, out
+
+
+def get_newest_frame(path, now, max_age=3.0, dark_below=DARK_BELOW, run=subprocess.run):
+    """The single access point to an open stream: the newest frame, if it is fresh and not dark.
+    Returns (JPEG bytes, brightness). Raises CameraError (no fresh frame) or DarkFrameError."""
+    if not os.path.exists(path) or now - os.stat(path).st_mtime > max_age:
+        raise CameraError('no fresh frame from the open stream')
+    brightness = mean_brightness(path, run)
+    if brightness < dark_below:
+        raise DarkFrameError('dark, closed lid (mean %d)' % brightness)
+    with open(path, 'rb') as handle:
+        return handle.read(), brightness
+
+
 def load_last(path):
     """Index of the last working camera from the state file, or None if missing or corrupt."""
     try:
@@ -135,11 +168,11 @@ def save_last(path, index, name):
 class Cameras(object):
     """What handle_request() needs: list() and capture(index)."""
 
-    def __init__(self, folder, name_filter='', rotate=True, dark_below=DARK_BELOW,
+    def __init__(self, folder, name_filter='', rotation_degrees=0, dark_below=DARK_BELOW,
                  run=subprocess.run):
         self.folder = folder
         self.name_filter = name_filter
-        self.rotate = rotate
+        self.rotation_degrees = rotation_degrees
         self.dark_below = dark_below
         self.run = run
         self.last = {}  # timing of the last capture, see capture()
@@ -149,4 +182,4 @@ class Cameras(object):
 
     def capture(self, index):
         self.last = {}
-        return capture(index, self.folder, self.rotate, self.dark_below, self.run, self.last)
+        return capture(index, self.folder, self.rotation_degrees, self.dark_below, self.run, self.last)
