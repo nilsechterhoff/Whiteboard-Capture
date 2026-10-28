@@ -153,12 +153,13 @@ def main(argv):
         return 1
 
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
-    lean = cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'], config['dark_below'])
+    lean = cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'], config['dark_below'],
+                       jpeg_quality=config['jpeg_quality'])
     parallel = selection_mod.ParallelCameras(
         WORK_DIR, lean, config['rotation_degrees'], config['dark_below'],
         config['agile_idle_timeout_seconds'], config['agile_timer_reset_events'],
         config['start_offset_seconds'], config['selection_frame_delay_seconds'],
-        config['retry_pause_seconds'], config['capture_retries'])
+        config['retry_pause_seconds'], config['capture_retries'], jpeg_quality=config['jpeg_quality'])
     atexit.register(parallel.close)
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     cameras = Timed(parallel, 'camera')
