@@ -18,6 +18,10 @@ Tasks and open ideas go to `project/backlog.md`, not into ADRs.
 | 1 | **test** | Build-time work only: test runs we start to learn something or to verify a change, and the test files in the repo. State the hypothesis before each test, and what new hypothesis a failure would trigger. A failed test questions our implementation first, not the underlying concept. |
 | 2 | **check** | Anything the finished program does itself at run time, following fixed rules: board check, brightness (dark-frame) check, fill check, status check. A check has a defined result and does not experiment. |
 
+## Prompts for Claude Code
+
+Claude Code only does what the prompt says: no checks, measures or steps of its own, and no questions to Nils unless the test itself needs his action. If it thinks something is missing, it says so in one line at the end. File deletion and other follow-ups are decided in the planning conversation, not by Claude Code. The prompt author therefore defines every measurement and intermediate step.
+
 ## Locations
 
 | Line # | What | Where |
