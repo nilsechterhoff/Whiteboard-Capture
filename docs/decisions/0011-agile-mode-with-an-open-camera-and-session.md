@@ -7,6 +7,9 @@ consulted: Claude (AI assistant)
 
 # Agile mode: keep the camera and the describe session open while Nils brainstorms
 
+> Changed by [ADR-0012](0012-parallel-camera-selection-with-start-offset-and-agile-always-on.md) (2026-10-27): agile is always on; lean is only the fall back, so `mode` and `agile_enabled` are no longer used.
+
+
 ## Context and Problem Statement
 
 The lean path (ADR-0008) takes one photo per request and starts a new describe process each time. A request takes about 22 to 35 s from request to description file, and most of that is camera start-up and the describe step. Nils wants the board to answer quickly during a brainstorming session. Agile mode keeps the camera stream and, in phase 2, the describe session open. BL-028 and the voice agreement of 2026-10-25 describe the idea. This ADR records the decision and the rules; it does not change ADR-0008 yet.

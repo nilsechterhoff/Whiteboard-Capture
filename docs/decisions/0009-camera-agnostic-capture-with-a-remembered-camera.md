@@ -7,6 +7,9 @@ consulted: Claude (AI assistant)
 
 # Camera-agnostic capture: try all cameras, remember the last working one
 
+> Changed by [ADR-0012](0012-parallel-camera-selection-with-start-offset-and-agile-always-on.md) (2026-10-27): the sequential camera step is replaced by parallel selection with a start offset and a frame delay.
+
+
 ## Context and Problem Statement
 
 ADR-0008 runs a Dropbox API watcher that takes the photo on the Mac. It names `imagesnap` for the camera step. In tests, `imagesnap` selects a camera only by name, and two Logitech C930e units are connected, so it cannot tell them apart. A plan to find the whiteboard camera by serial number and Unique ID was rejected: the Unique ID is tied to the USB port, and the ffmpeg index changed between runs without a replug. The camera therefore has to be chosen from what the picture shows, not from an ID.

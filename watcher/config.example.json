@@ -2,7 +2,7 @@
   "app_key": "<from the Dropbox app console; never commit>",
   "app_secret": "<from the Dropbox app console; never commit>",
   "refresh_token": "<written by setup_dropbox.py; never commit>",
-  "camera_name": "",
+  "camera_name": "<exact device name from the ffmpeg device list, e.g. Logitech Webcam C930e>",
   "rotation_degrees": 0,
   "dark_below": 20,
   "default_model": "haiku",
@@ -11,10 +11,17 @@
     "sonnet": "claude-sonnet-5-5",
     "opus": "claude-opus-5-5"
   },
-  "min_board_fill_percent": 0,
+  "min_board_fill_percent": 50,
+  "start_offset_seconds": 0.1,
+  "selection_frame_delay_seconds": 2,
+  "retry_pause_seconds": 1,
+  "capture_retries": 2,
   "agile_idle_timeout_seconds": 600,
   "agile_timer_reset_events": {
     "request": "yes"
   },
-  "agile_enabled": "no"
+  "agile_session": "no",
+  "agile_session_restart_after_requests": 20,
+  "failed_photos_keep": 5,
+  "failed_photos_folder": "failed-photos"
 }
