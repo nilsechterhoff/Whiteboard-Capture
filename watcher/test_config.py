@@ -144,5 +144,20 @@ class FailedPhotosConfigTests(unittest.TestCase):
         self.assertEqual(len(cfg.validate({'failed_photos_folder': ''})), 1)
 
 
+class JpegQualityConfigTests(unittest.TestCase):
+
+    def test_default_is_2(self):
+        self.assertEqual(cfg.apply_defaults({})['jpeg_quality'], 2)
+
+    def test_range_2_to_31_is_accepted(self):
+        self.assertEqual(cfg.validate({'jpeg_quality': 2}), [])
+        self.assertEqual(cfg.validate({'jpeg_quality': 31}), [])
+
+    def test_bad_values_are_refused_with_a_message(self):
+        for bad in (1, 0, 32, -1, 2.5, '2', True, None):
+            errors = cfg.validate({'jpeg_quality': bad})
+            self.assertEqual(len(errors), 1, bad)
+            self.assertIn('jpeg_quality must be a whole number from 2 to 31', errors[0])
+
 if __name__ == '__main__':
     unittest.main()

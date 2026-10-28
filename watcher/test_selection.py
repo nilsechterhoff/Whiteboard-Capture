@@ -350,5 +350,19 @@ class RequestFlowTests(unittest.TestCase):
         self.assertEqual(memory.remembered, [])
 
 
+class JpegQualityTests(unittest.TestCase):
+
+    def setUp(self):
+        self.folder = testroot.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.folder)
+
+    def test_every_stream_gets_the_quality_flag(self):
+        h = Harness(self.folder, plan={1: ['pass']})
+        h.select()
+        for proc in h.popen.procs:
+            self.assertEqual(proc.cmd[proc.cmd.index('-q:v') + 1], '2')
+
 if __name__ == '__main__':
     unittest.main()

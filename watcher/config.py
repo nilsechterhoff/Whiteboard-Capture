@@ -8,6 +8,7 @@ import camera as cam
 DEFAULTS = {
     'rotation_degrees': 0,
     'min_board_fill_percent': 50,  # 0 = off
+    'jpeg_quality': 2,             # ffmpeg -q:v for every JPEG the watcher writes: 2 (best) to 31
     'start_offset_seconds': 0.1,            # between the stream starts of one selection
     'selection_frame_delay_seconds': 2,     # frame checked this long after its stream started
     'retry_pause_seconds': 1,               # pause between two selections
@@ -59,6 +60,9 @@ def validate(config):
         value = config.get(key, DEFAULTS[key])
         if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
             errors.append('%s must be a number, 0 or more (got %r)' % (key, value))
+    quality = config.get('jpeg_quality', DEFAULTS['jpeg_quality'])
+    if not isinstance(quality, int) or isinstance(quality, bool) or not 2 <= quality <= 31:
+        errors.append('jpeg_quality must be a whole number from 2 to 31 (got %r)' % (quality,))
     retries = config.get('capture_retries', DEFAULTS['capture_retries'])
     if not isinstance(retries, int) or isinstance(retries, bool) or retries < 0:
         errors.append('capture_retries must be a whole number, 0 or more (got %r)' % (retries,))

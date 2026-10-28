@@ -88,7 +88,8 @@ class ParallelCameras(object):
 
     def __init__(self, folder, lean, rotation_degrees=0, dark_below=cam.DARK_BELOW, idle_timeout=600,
                  reset_events=None, start_offset=0.1, frame_delay=2.0, retry_pause=1.0, retries=2,
-                 popen=subprocess.Popen, clock=time.time, sleep=time.sleep, run=subprocess.run):
+                 jpeg_quality=cam.JPEG_QUALITY, popen=subprocess.Popen, clock=time.time, sleep=time.sleep,
+                 run=subprocess.run):
         self.folder = folder
         self.lean = lean                      # the lean path: a cam.Cameras object (list, capture)
         self.rotation_degrees = rotation_degrees
@@ -99,6 +100,7 @@ class ParallelCameras(object):
         self.frame_delay = frame_delay
         self.retry_pause = retry_pause
         self.retries = retries
+        self.jpeg_quality = jpeg_quality
         self.popen = popen
         self.clock = clock
         self.sleep = sleep
@@ -286,7 +288,7 @@ class ParallelCameras(object):
             LOG.info('stream on camera %d started at %s' % (index, stamp(self.streams[index].started)))
 
     def _start(self, index):
-        cmd, path = cam.stream_command(index, self.folder, self.rotation_degrees)
+        cmd, path = cam.stream_command(index, self.folder, self.rotation_degrees, self.jpeg_quality)
         try:
             os.remove(path)            # never answer from an old frame
         except OSError:

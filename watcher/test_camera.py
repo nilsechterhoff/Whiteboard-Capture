@@ -199,5 +199,39 @@ class StateTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.path + '.tmp'))
 
 
+class JpegQualityTests(unittest.TestCase):
+
+    def setUp(self):
+        self.folder = testroot.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.folder)
+
+    def quality_of(self, cmd):
+        return cmd[cmd.index('-q:v') + 1]
+
+    def test_stream_command_default_is_quality_2_before_the_output(self):
+        cmd, out = cam.stream_command(0, self.folder, 0)
+        self.assertEqual(self.quality_of(cmd), '2')
+        self.assertLess(cmd.index('-q:v'), cmd.index('-y'))
+        self.assertEqual(cmd[-1], out)
+
+    def test_stream_command_uses_the_configured_quality(self):
+        cmd, _ = cam.stream_command(0, self.folder, 0, jpeg_quality=10)
+        self.assertEqual(self.quality_of(cmd), '10')
+
+    def test_single_capture_uses_the_quality_too(self):
+        fake = FakeFfmpeg(brightness={'frame-0.jpg': 90.0})
+        cam.capture(0, self.folder, run=fake)
+        capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
+        self.assertEqual(self.quality_of(capture_cmd), '2')
+
+    def test_cameras_class_passes_the_configured_quality(self):
+        fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})
+        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', run=fake, jpeg_quality=7)
+        cameras.capture(4)
+        capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
+        self.assertEqual(self.quality_of(capture_cmd), '7')
+
 if __name__ == '__main__':
     unittest.main()
