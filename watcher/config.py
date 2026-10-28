@@ -7,15 +7,20 @@ import camera as cam
 
 DEFAULTS = {
     'rotation_degrees': 0,
-    'min_board_fill_percent': 0,  # 0 = off
-    'agile_enabled': 'no',        # yes: a request may start or reuse agile mode; no: always lean
+    'min_board_fill_percent': 50,  # 0 = off
+    'start_offset_seconds': 0.1,            # between the stream starts of one selection
+    'selection_frame_delay_seconds': 2,     # frame checked this long after its stream started
+    'retry_pause_seconds': 1,               # pause between two selections
+    'capture_retries': 2,                   # selections after the first one, when no frame passes
     'agile_idle_timeout_seconds': 600,
     'agile_timer_reset_events': {'request': 'yes'},
-    'agile_session': 'no',                  # phase 2: yes | no
+    'agile_session': 'no',                  # yes | no: long-lived describe session
     'agile_session_restart_after_requests': 20,
     'failed_photos_keep': 5,            # 0 = off
     'failed_photos_folder': 'failed-photos',  # inside the log folder
 }
+
+IGNORED_KEYS = ('agile_enabled', 'mode')  # agile is always on (ADR-0012); the keys are ignored
 
 
 def apply_defaults(config):
@@ -25,26 +30,19 @@ def apply_defaults(config):
 
 
 def normalize(config):
-    """Old key `mode`: `mode: agile` becomes agile_enabled yes, anything else no.
-    Returns the warnings to log (one per use of the old key). Never raises."""
-    warnings = []
-    if 'mode' in config:
-        if 'agile_enabled' not in config:
-            config['agile_enabled'] = 'yes' if config.get('mode') == 'agile' else 'no'
-        warnings.append('config key mode is replaced by agile_enabled (set to %s); remove mode'
-                        % config['agile_enabled'])
-        config.pop('mode', None)
-    return warnings
-
-
-def agile_on(config):
-    """A request may start or reuse agile mode. Lean is the base; this is only the upgrade."""
-    return config.get('agile_enabled', DEFAULTS['agile_enabled']) == 'yes'
+    """Removes the keys that no longer do anything (IGNORED_KEYS). Returns one warning if any was present."""
+    present = [key for key in IGNORED_KEYS if key in config]
+    for key in present:
+        config.pop(key, None)
+    if not present:
+        return []
+    return ['config keys %s are ignored: agile is always on (ADR-0012); remove them from config.json'
+            % ', '.join(present)]
 
 
 def session_on(config):
-    """The long-lived describe session, only ever used while agile is allowed."""
-    return agile_on(config) and config.get('agile_session', DEFAULTS['agile_session']) == 'yes'
+    """The long-lived describe session (used together with the always-on streams)."""
+    return config.get('agile_session', DEFAULTS['agile_session']) == 'yes'
 
 
 def validate(config):
@@ -57,9 +55,13 @@ def validate(config):
     fill = config.get('min_board_fill_percent', DEFAULTS['min_board_fill_percent'])
     if not isinstance(fill, int) or isinstance(fill, bool) or not 0 <= fill <= 100:
         errors.append('min_board_fill_percent must be a whole number from 0 to 100 (got %r)' % (fill,))
-    enabled = config.get('agile_enabled', DEFAULTS['agile_enabled'])
-    if enabled not in ('yes', 'no'):
-        errors.append('agile_enabled must be yes or no (got %r)' % (enabled,))
+    for key in ('start_offset_seconds', 'selection_frame_delay_seconds', 'retry_pause_seconds'):
+        value = config.get(key, DEFAULTS[key])
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            errors.append('%s must be a number, 0 or more (got %r)' % (key, value))
+    retries = config.get('capture_retries', DEFAULTS['capture_retries'])
+    if not isinstance(retries, int) or isinstance(retries, bool) or retries < 0:
+        errors.append('capture_retries must be a whole number, 0 or more (got %r)' % (retries,))
     timeout = config.get('agile_idle_timeout_seconds', DEFAULTS['agile_idle_timeout_seconds'])
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         errors.append('agile_idle_timeout_seconds must be a whole number above 0 (got %r)' % (timeout,))

@@ -9,7 +9,7 @@ Config: ~/Library/Application Support/whiteboard-watcher/config.json
   app_key, app_secret, refresh_token (from setup_dropbox.py)
   camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
-  min_board_fill_percent (0 = off; Nils's config: 80)
+  min_board_fill_percent (0 = off; default 50)
 Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
         ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
 Python 3.9 standard library only.
@@ -35,7 +35,7 @@ from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
 from results import Results                # noqa: E402
 import config as config_mod                # noqa: E402
-import agile as agile_mod                  # noqa: E402
+import selection as selection_mod          # noqa: E402
 
 CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
@@ -154,14 +154,14 @@ def main(argv):
 
     store = Timed(DropboxStore(config['app_key'], config['app_secret'], config['refresh_token']), 'dropbox')
     lean = cam.Cameras(WORK_DIR, config['camera_name'], config['rotation_degrees'], config['dark_below'])
-    if config_mod.agile_on(config):
-        agile = agile_mod.AgileCameras(WORK_DIR, lean, config['rotation_degrees'], config['dark_below'],
-                                       config['agile_idle_timeout_seconds'], config['agile_timer_reset_events'])
-        atexit.register(agile.close)
-        signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
-        cameras = Timed(agile, 'camera')
-    else:
-        cameras = Timed(lean, 'camera')
+    parallel = selection_mod.ParallelCameras(
+        WORK_DIR, lean, config['rotation_degrees'], config['dark_below'],
+        config['agile_idle_timeout_seconds'], config['agile_timer_reset_events'],
+        config['start_offset_seconds'], config['selection_frame_delay_seconds'],
+        config['retry_pause_seconds'], config['capture_retries'])
+    atexit.register(parallel.close)
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
+    cameras = Timed(parallel, 'camera')
     lean_describer = Describer(WORK_DIR, config['models'])
     if config_mod.session_on(config):
         describer = Timed(describe_mod.SessionDescriber(

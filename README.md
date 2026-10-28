@@ -82,7 +82,7 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 5 | MVP B last working camera (hint only) | `~/Library/Application Support/whiteboard-watcher/last_camera.json` |
 | 6 | MVP B watcher log | `~/Library/Logs/whiteboard-watcher.log` |
 | 7 | MVP B timing log (one row per request, no whiteboard content) | `~/Library/Logs/whiteboard-watcher-timings.csv` |
-| 8b | MVP B agile settings | `agile_enabled` yes/no (default no: every request is lean). `agile_idle_timeout_seconds` (default 600). `agile_session` yes/no (default no; only with agile_enabled yes). `mode` is replaced by `agile_enabled` (old `mode: agile` becomes yes, with a warning in the log) |
+| 8b | MVP B selection and agile settings | `camera_name` must equal the device name exactly. `start_offset_seconds` (0.1), `selection_frame_delay_seconds` (2), `retry_pause_seconds` (1), `capture_retries` (2): see ADR-0012. `agile_idle_timeout_seconds` (600). `agile_session` yes/no (default no). `agile_enabled` and `mode` are ignored (agile is always on); the log warns once when they are present |
 | 8a | MVP B watcher settings | `watcher/config.example.json` (no secrets). `rotation_degrees`: 0, 90, 180 or 270; default 0 (Nils's config: 180). Any other value stops the watcher with a clear message |
 | 8 | MVP B background service (after your yes) | `~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist` and `~/Library/Logs/whiteboard-watcher.launchd.log`. Install: `python3 watcher/setup_dropbox.py --service`. Remove: `python3 watcher/setup_dropbox.py --uninstall` |
 | 4 | Lessons and camera facts (old camera branch) | [project/lessons-and-camera-facts.md](project/lessons-and-camera-facts.md) |
@@ -161,4 +161,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 8 | 0008 | [Run a Dropbox API watcher that takes the photo, with YAML requests in numbered subfolders](docs/decisions/0008-run-a-dropbox-api-watcher-that-takes-the-photo-with-yaml-requests-in-numbered-subfolders.md) | accepted |
 | 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
 | 10 | 0011 | [Agile mode: keep the camera and the describe session open while Nils brainstorms](docs/decisions/0011-agile-mode-with-an-open-camera-and-session.md) | accepted |
+| 11 | 0012 | [Parallel camera selection with a start offset and frame delay; agile always on](docs/decisions/0012-parallel-camera-selection-with-start-offset-and-agile-always-on.md) | proposed |
 | 10 | 0010 | [Use a time connector as the voice agent's clock](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md) | accepted |
