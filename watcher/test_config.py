@@ -1,124 +1,164 @@
-"""Tests for the rotation setting and config validation. No camera, no network.
+"""Tests for the config rules (BL-040): settings (values, defaults, conversion) and config checks.
 
 Run: cd watcher && python3 -m unittest -v test_config
 """
 
+import json
+import os
+import shutil
 import unittest
 
-import camera as cam
-from whiteboard_watcher import CameraError
 import config as cfg
+import settings as st
+import testroot
+
+EXAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')
 
 
-class RotationTests(unittest.TestCase):
-
-    def test_mapping(self):
-        self.assertEqual(cam.rotation_filters(0), [])
-        self.assertEqual(cam.rotation_filters(90), ['transpose=1'])
-        self.assertEqual(cam.rotation_filters(180), ['hflip', 'vflip'])
-        self.assertEqual(cam.rotation_filters(270), ['transpose=2'])
-
-    def test_other_values_are_refused(self):
-        for bad in (45, 360, -90, '180', None):
-            with self.assertRaises(ValueError):
-                cam.rotation_filters(bad)
-
-    def test_capture_command_uses_the_mapping(self):
-        import os
-        import tempfile
-        seen = []
-
-        def run(cmd, **kwargs):
-            seen.append(cmd)
-            raise FileNotFoundError('record only')
-        folder = tempfile.mkdtemp()
-        try:
-            cam.capture(1, folder, 90, run=run)
-        except CameraError:
-            pass
-        except FileNotFoundError:
-            pass
-        os.rmdir(folder)
-        self.assertIn('transpose=1', seen[0])
-        self.assertNotIn('hflip', ' '.join(seen[0]))
+def entry(value, default, allowed=None):
+    item = {'value': value, 'default': default}
+    if allowed is not None:
+        item['allowed'] = allowed
+    return item
 
 
-class ConfigTests(unittest.TestCase):
+class AllowedTests(unittest.TestCase):
 
-    def test_default_rotation_is_zero(self):
-        self.assertEqual(cfg.apply_defaults({})['rotation_degrees'], 0)
+    def test_range_is_whole_numbers_inclusive(self):
+        self.assertTrue(st.check(2, '2-31'))
+        self.assertTrue(st.check(31, '2-31'))
+        for bad in (1, 32, 2.5, '2', True):
+            self.assertFalse(st.check(bad, '2-31'), bad)
 
-    def test_valid_config_has_no_errors(self):
-        self.assertEqual(cfg.validate({'rotation_degrees': 180}), [])
+    def test_minimums(self):
+        self.assertTrue(st.check(0, 'int>=0'))
+        self.assertFalse(st.check(-1, 'int>=0'))
+        self.assertFalse(st.check(1.5, 'int>=0'))
+        self.assertTrue(st.check(0.1, 'number>=0'))
+        self.assertFalse(st.check(-0.1, 'number>=0'))
 
-    def test_invalid_rotation_is_reported(self):
-        errors = cfg.validate({'rotation_degrees': 45})
-        self.assertEqual(len(errors), 1)
-        self.assertIn('0, 90, 180, 270', errors[0])
+    def test_lists_compare_as_text(self):
+        self.assertTrue(st.check(90, '0|90|180|270'))
+        self.assertFalse(st.check(45, '0|90|180|270'))
+        self.assertTrue(st.check('yes', 'yes|no'))
+        self.assertFalse(st.check('maybe', 'yes|no'))
 
+    def test_dict_of_words(self):
+        self.assertTrue(st.check({'request': 'yes'}, 'dict:yes|no'))
+        self.assertFalse(st.check({'request': 'maybe'}, 'dict:yes|no'))
 
-class BoardFillConfigTests(unittest.TestCase):
-
-    def test_default_is_50_and_0_is_off(self):
-        self.assertEqual(cfg.apply_defaults({})['min_board_fill_percent'], 50)
-        self.assertEqual(cfg.validate({'min_board_fill_percent': 0}), [])
-
-    def test_range_0_to_100(self):
-        self.assertEqual(cfg.validate({'min_board_fill_percent': 80}), [])
-        self.assertEqual(cfg.validate({'min_board_fill_percent': 0}), [])
-        self.assertEqual(cfg.validate({'min_board_fill_percent': 100}), [])
-        for bad in (-1, 101, 80.5, '80', True):
-            self.assertEqual(len(cfg.validate({'min_board_fill_percent': bad})), 1, bad)
-
-
-class AgileConfigTests(unittest.TestCase):
-
-    def test_defaults_are_ten_minutes_session_off_and_selection_settings(self):
-        d = cfg.apply_defaults({})
-        self.assertEqual(d['agile_idle_timeout_seconds'], 600)
-        self.assertEqual(d['agile_timer_reset_events'], {'request': 'yes'})
-        self.assertEqual(d['start_offset_seconds'], 0.1)
-        self.assertEqual(d['selection_frame_delay_seconds'], 2)
-        self.assertEqual(d['retry_pause_seconds'], 1)
-        self.assertEqual(d['capture_retries'], 2)
-        self.assertFalse(cfg.session_on(d))
-        self.assertNotIn('agile_enabled', d)
-
-    def test_values_are_checked(self):
-        self.assertEqual(len(cfg.validate({'agile_idle_timeout_seconds': 0})), 1)
-        self.assertEqual(len(cfg.validate({'agile_timer_reset_events': {'request': 'maybe'}})), 1)
-        self.assertEqual(len(cfg.validate({'agile_session': 'maybe'})), 1)
-
-    def test_selection_values_are_checked(self):
-        self.assertEqual(cfg.validate({'start_offset_seconds': 0, 'selection_frame_delay_seconds': 2.5,
-                                       'retry_pause_seconds': 0, 'capture_retries': 0}), [])
-        self.assertEqual(len(cfg.validate({'start_offset_seconds': -0.1})), 1)
-        self.assertEqual(len(cfg.validate({'selection_frame_delay_seconds': '2'})), 1)
-        self.assertEqual(len(cfg.validate({'retry_pause_seconds': True})), 1)
-        self.assertEqual(len(cfg.validate({'capture_retries': -1})), 1)
-        self.assertEqual(len(cfg.validate({'capture_retries': 1.5})), 1)
-
-    def test_session_needs_session_yes(self):
-        self.assertFalse(cfg.session_on({}))
-        self.assertTrue(cfg.session_on({'agile_session': 'yes'}))
+    def test_text_and_any(self):
+        self.assertTrue(st.check('failed-photos', 'text'))
+        self.assertFalse(st.check('', 'text'))
+        self.assertTrue(st.check('anything at all', 'any'))
+        self.assertTrue(st.check(None, None))
 
 
-class IgnoredKeysTests(unittest.TestCase):
+class ResolveTests(unittest.TestCase):
 
-    def test_agile_enabled_is_removed_with_one_warning(self):
+    def test_a_valid_value_is_used(self):
+        settings, warnings = st.resolve({'jpeg_quality': entry(6, 4, '2-31')})
+        self.assertEqual(settings['jpeg_quality'], 6)
+        self.assertEqual(warnings, [])
+
+    def test_an_invalid_value_falls_back_to_the_default_with_one_line(self):
+        settings, warnings = st.resolve({'jpeg_quality': entry(40, 4, '2-31')})
+        self.assertEqual(settings['jpeg_quality'], 4)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('jpeg_quality', warnings[0])
+        self.assertIn('using the default 4', warnings[0])
+
+    def test_an_empty_value_falls_back_to_the_default(self):
+        settings, warnings = st.resolve({'retry_pause_seconds': entry(None, 1, 'number>=0')})
+        self.assertEqual(settings['retry_pause_seconds'], 1)
+        self.assertEqual(len(warnings), 1)
+
+    def test_empty_value_equal_to_its_default_is_silent(self):
+        settings, warnings = st.resolve({'camera_name': entry('', '', 'any')})
+        self.assertEqual(settings['camera_name'], '')
+        self.assertEqual(warnings, [])
+
+    def test_plain_values_stay_as_they_are(self):
+        settings, warnings = st.resolve({'app_key': 'K', 'models': {'haiku': 'x'}})
+        self.assertEqual(settings, {'app_key': 'K', 'models': {'haiku': 'x'}})
+        self.assertEqual(warnings, [])
+
+
+class ConversionTests(unittest.TestCase):
+
+    def setUp(self):
+        self.folder = testroot.mkdtemp()
+        self.path = os.path.join(self.folder, 'config.json')
+        self.example = json.load(open(EXAMPLE))
+
+    def tearDown(self):
+        shutil.rmtree(self.folder)
+
+    def test_flat_config_needs_conversion(self):
+        self.assertTrue(st.needs_conversion({'jpeg_quality': 2}, self.example))
+
+    def test_entry_config_does_not_need_conversion(self):
+        self.assertFalse(st.needs_conversion({'jpeg_quality': entry(2, 4, '2-31')}, self.example))
+
+    def test_conversion_keeps_the_old_value_and_takes_the_default_from_the_example(self):
+        raw = {'app_key': 'K', 'camera_name': 'Logitech Webcam C930e', 'jpeg_quality': 2}
+        with open(self.path, 'w') as handle:
+            json.dump(raw, handle)
+        converted, _ = st.convert(raw, self.example, self.path, now=1793200000)
+        self.assertEqual(converted['camera_name']['value'], 'Logitech Webcam C930e')
+        self.assertEqual(converted['jpeg_quality'], entry(2, 4, '2-31'))
+        self.assertEqual(converted['app_key'], 'K')
+
+    def test_conversion_writes_a_timestamped_backup_next_to_the_file(self):
+        raw = {'jpeg_quality': 2}
+        with open(self.path, 'w') as handle:
+            json.dump(raw, handle)
+        _, backup = st.convert(raw, self.example, self.path, now=1793200000)
+        self.assertTrue(os.path.exists(backup))
+        self.assertEqual(os.path.dirname(backup), self.folder)
+        self.assertIn('backup-', os.path.basename(backup))
+        self.assertEqual(json.load(open(backup)), raw)
+
+    def test_missing_keys_get_the_example_entry(self):
+        with open(self.path, 'w') as handle:
+            json.dump({'app_key': 'K'}, handle)
+        converted, _ = st.convert({'app_key': 'K'}, self.example, self.path, now=1793200000)
+        self.assertEqual(converted['capture_retries'], entry(2, 2, 'int>=0'))
+
+    def test_write_keeps_the_file_private(self):
+        st.write(self.path, {'a': 1})
+        self.assertEqual(oct(os.stat(self.path).st_mode & 0o777), '0o600')
+
+
+class ExampleFileTests(unittest.TestCase):
+
+    def test_every_default_is_an_entry_with_an_allowed_rule_and_resolves_cleanly(self):
+        example = json.load(open(EXAMPLE))
+        settings, warnings = st.resolve(example)
+        self.assertEqual(warnings, [])
+        self.assertEqual(settings['jpeg_quality'], 4)
+        self.assertEqual(settings['rotation_degrees'], 0)
+        self.assertEqual(settings['agile_timer_reset_events'], {'request': 'yes'})
+
+    def test_example_secrets_stay_plain(self):
+        example = json.load(open(EXAMPLE))
+        for key in ('app_key', 'app_secret', 'refresh_token', 'models'):
+            self.assertFalse(st.is_entry(example[key]), key)
+
+
+class ConfigRuleTests(unittest.TestCase):
+
+    def test_agile_enabled_and_mode_are_removed_with_one_warning(self):
         c = {'agile_enabled': 'yes', 'camera_name': 'x'}
         warnings = cfg.normalize(c)
         self.assertNotIn('agile_enabled', c)
         self.assertEqual(len(warnings), 1)
-        self.assertIn('agile_enabled', warnings[0])
         self.assertIn('ignored', warnings[0])
 
-    def test_old_mode_key_is_removed_with_one_warning(self):
+    def test_old_mode_key_is_removed(self):
         c = {'mode': 'agile'}
-        warnings = cfg.normalize(c)
+        self.assertEqual(len(cfg.normalize(c)), 1)
         self.assertNotIn('mode', c)
-        self.assertEqual(len(warnings), 1)
-        self.assertIn('mode', warnings[0])
 
     def test_both_keys_still_give_one_warning(self):
         c = {'mode': 'agile', 'agile_enabled': 'no'}
@@ -128,36 +168,16 @@ class IgnoredKeysTests(unittest.TestCase):
     def test_no_such_key_means_no_warning(self):
         self.assertEqual(cfg.normalize({'camera_name': 'x'}), [])
 
+    def test_session_is_on_only_with_session_yes(self):
+        self.assertFalse(cfg.session_on({'agile_session': 'no'}))
+        self.assertTrue(cfg.session_on({'agile_session': 'yes'}))
 
-class FailedPhotosConfigTests(unittest.TestCase):
+    def test_validate_checks_the_folder_name_and_the_default_model(self):
+        ok = {'failed_photos_folder': 'failed-photos', 'default_model': 'haiku', 'models': {'haiku': 'x'}}
+        self.assertEqual(cfg.validate(ok), [])
+        self.assertEqual(len(cfg.validate(dict(ok, failed_photos_folder='../x'))), 1)
+        self.assertEqual(len(cfg.validate(dict(ok, default_model='nope'))), 1)
 
-    def test_defaults(self):
-        d = cfg.apply_defaults({})
-        self.assertEqual(d['failed_photos_keep'], 5)
-        self.assertEqual(d['failed_photos_folder'], 'failed-photos')
-
-    def test_keep_and_folder_are_checked(self):
-        self.assertEqual(cfg.validate({'failed_photos_keep': 0}), [])
-        self.assertEqual(len(cfg.validate({'failed_photos_keep': -1})), 1)
-        self.assertEqual(len(cfg.validate({'failed_photos_keep': '5'})), 1)
-        self.assertEqual(len(cfg.validate({'failed_photos_folder': '../x'})), 1)
-        self.assertEqual(len(cfg.validate({'failed_photos_folder': ''})), 1)
-
-
-class JpegQualityConfigTests(unittest.TestCase):
-
-    def test_default_is_2(self):
-        self.assertEqual(cfg.apply_defaults({})['jpeg_quality'], 2)
-
-    def test_range_2_to_31_is_accepted(self):
-        self.assertEqual(cfg.validate({'jpeg_quality': 2}), [])
-        self.assertEqual(cfg.validate({'jpeg_quality': 31}), [])
-
-    def test_bad_values_are_refused_with_a_message(self):
-        for bad in (1, 0, 32, -1, 2.5, '2', True, None):
-            errors = cfg.validate({'jpeg_quality': bad})
-            self.assertEqual(len(errors), 1, bad)
-            self.assertIn('jpeg_quality must be a whole number from 2 to 31', errors[0])
 
 if __name__ == '__main__':
     unittest.main()

@@ -119,7 +119,7 @@ class Harness(object):
         self.checks = []        # (index, clock time) of every board check
         self.watch = Watch(machine='test-mac', clock=self.clock)
         self.cameras = selection.ParallelCameras(
-            folder, self.lean, 0, 20, idle_timeout, None, 0.1, 2.0, 1.0, retries,
+            folder, self.lean, 0, 20, idle_timeout, {'request': 'yes'}, 0.1, 2.0, 1.0, retries, 2,
             popen=self.popen, clock=self.clock, sleep=self.clock.sleep, run=self.run)
 
     def check(self, index, photo):

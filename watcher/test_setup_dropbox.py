@@ -82,7 +82,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(data['app_key'], 'KEY')
         self.assertEqual(data['app_secret'], 'SECRET')
         self.assertEqual(data['refresh_token'], 'REFRESH')
-        self.assertEqual(data['default_model'], 'haiku')
+        self.assertEqual(data['default_model']['value'], 'haiku')
+        self.assertEqual(data['jpeg_quality']['default'], 4)
         self.assertIn('claude-sonnet-5-5', data['models'].values())
         self.assertFalse(os.path.exists(self.path + '.tmp'))
 

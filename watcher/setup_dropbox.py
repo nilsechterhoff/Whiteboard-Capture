@@ -29,20 +29,8 @@ LABEL = 'com.nilsechterhoff.whiteboard-watcher'
 PLIST_PATH = os.path.expanduser('~/Library/LaunchAgents/%s.plist' % LABEL)
 LAUNCHD_LOG = os.path.expanduser('~/Library/Logs/whiteboard-watcher.launchd.log')
 # Starting values for config.json. Models live here, not in the watcher code.
-DEFAULT_SETTINGS = {
-    'models': {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'},
-    'default_model': 'haiku',
-    'camera_name': '',
-    'rotation_degrees': 0,
-    'min_board_fill_percent': 50,
-    'start_offset_seconds': 0.1,
-    'selection_frame_delay_seconds': 2,
-    'retry_pause_seconds': 1,
-    'capture_retries': 2,
-    'agile_idle_timeout_seconds': 600,
-    'agile_timer_reset_events': {'request': 'yes'},
-    'dark_below': 20,
-}
+# The defaults come from config.example.json (BL-040), not from this file.
+EXAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')
 AUTHORIZE_URL = 'https://www.dropbox.com/oauth2/authorize'
 TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token'
 LIST_URL = 'https://api.dropboxapi.com/2/files/list_folder'
@@ -127,7 +115,8 @@ def write_config(path, app_key, app_secret, refresh_token):
     os.makedirs(folder, mode=0o700, exist_ok=True)
     os.chmod(folder, 0o700)
     temp = path + '.tmp'
-    data = dict(DEFAULT_SETTINGS)
+    with open(EXAMPLE_PATH) as handle:
+        data = json.load(handle)
     data.update({'app_key': app_key, 'app_secret': app_secret, 'refresh_token': refresh_token})
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w') as handle:
