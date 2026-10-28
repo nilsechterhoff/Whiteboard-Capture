@@ -5,14 +5,14 @@ Usage:
     python3 watcher/watcher.py --once --wait 60  wait up to 60 s for a request first
     python3 watcher/watcher.py                   loop (the launchd service, step D)
 
-Config: ~/Library/Application Support/whiteboard-watcher/config.json
+Config: config.json in the local folder named in paths.py (CONFIG_DIR)
   app_key, app_secret, refresh_token (from setup_dropbox.py)
   camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
   min_board_fill_percent (0 = off; default 50)
-All local files are in one folder (BL-035), see README: ~/Library/Application Support/whiteboard-watcher/
-  whiteboard-watcher.log (no secrets), whiteboard-watcher-timings.csv (one row per request, no whiteboard
-  content), failed-photos/ (kept photos the board check refused), config.json, last_camera.json, work/, results/
+All local files are in that one folder (BL-035), see README: config.json, last_camera.json, work/,
+  results/, whiteboard-watcher.log (no secrets), whiteboard-watcher-timings.csv (one row per request, no
+  whiteboard content), failed-photos/ (kept photos the board check refused)
 Python 3.9 standard library only.
 """
 
@@ -39,7 +39,7 @@ import config as config_mod                # noqa: E402
 import settings                            # noqa: E402
 import selection as selection_mod          # noqa: E402
 
-CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
+from paths import CONFIG_DIR               # noqa: E402
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 LAST_CAMERA_PATH = os.path.join(CONFIG_DIR, 'last_camera.json')
 EXAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')

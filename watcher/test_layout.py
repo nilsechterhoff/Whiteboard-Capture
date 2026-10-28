@@ -25,6 +25,14 @@ class OneFolderTests(unittest.TestCase):
         failed = os.path.join(watcher.CONFIG_DIR, 'failed-photos')
         self.assertEqual(os.path.dirname(failed), watcher.CONFIG_DIR)
 
+    def test_the_local_folder_is_named_in_exactly_one_place(self):
+        self.assertEqual(watcher.CONFIG_DIR, os.path.expanduser('~/Library/Application Support/aiaiboard'))
+        for name in glob.glob(os.path.join(HERE, '*.py')):
+            if os.path.basename(name).startswith('test_') or os.path.basename(name) == 'paths.py':
+                continue
+            with open(name) as handle:
+                self.assertNotIn('Application Support', handle.read(), name)
+
     def test_the_watcher_code_names_no_other_log_folder(self):
         for name in glob.glob(os.path.join(HERE, '*.py')):
             if os.path.basename(name).startswith('test_'):

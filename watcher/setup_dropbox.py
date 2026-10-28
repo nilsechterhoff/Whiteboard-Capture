@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
+from paths import CONFIG_DIR
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 LABEL = 'com.nilsechterhoff.whiteboard-watcher'
 PLIST_PATH = os.path.expanduser('~/Library/LaunchAgents/%s.plist' % LABEL)

@@ -161,7 +161,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(paths['plist'], os.path.expanduser(
             '~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist'))
         self.assertEqual(paths['log'], os.path.expanduser(
-            '~/Library/Application Support/whiteboard-watcher/whiteboard-watcher.launchd.log'))
+            '~/Library/Application Support/aiaiboard/whiteboard-watcher.launchd.log'))
 
     def test_consent_needs_the_word_yes(self):
         original = builtins.input
