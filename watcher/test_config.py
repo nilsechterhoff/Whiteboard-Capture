@@ -147,7 +147,7 @@ class FailedPhotosConfigTests(unittest.TestCase):
 class JpegQualityConfigTests(unittest.TestCase):
 
     def test_default_is_2(self):
-        self.assertEqual(cfg.apply_defaults({})['jpeg_quality'], 2)
+        self.assertEqual(cfg.apply_defaults({})['jpeg_quality'], 4)
 
     def test_range_2_to_31_is_accepted(self):
         self.assertEqual(cfg.validate({'jpeg_quality': 2}), [])

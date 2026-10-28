@@ -210,9 +210,9 @@ class JpegQualityTests(unittest.TestCase):
     def quality_of(self, cmd):
         return cmd[cmd.index('-q:v') + 1]
 
-    def test_stream_command_default_is_quality_2_before_the_output(self):
+    def test_stream_command_default_is_quality_4_before_the_output(self):
         cmd, out = cam.stream_command(0, self.folder, 0)
-        self.assertEqual(self.quality_of(cmd), '2')
+        self.assertEqual(self.quality_of(cmd), '4')
         self.assertLess(cmd.index('-q:v'), cmd.index('-y'))
         self.assertEqual(cmd[-1], out)
 
@@ -224,7 +224,7 @@ class JpegQualityTests(unittest.TestCase):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 90.0})
         cam.capture(0, self.folder, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
-        self.assertEqual(self.quality_of(capture_cmd), '2')
+        self.assertEqual(self.quality_of(capture_cmd), '4')
 
     def test_cameras_class_passes_the_configured_quality(self):
         fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})

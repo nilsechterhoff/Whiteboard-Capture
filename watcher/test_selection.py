@@ -362,7 +362,7 @@ class JpegQualityTests(unittest.TestCase):
         h = Harness(self.folder, plan={1: ['pass']})
         h.select()
         for proc in h.popen.procs:
-            self.assertEqual(proc.cmd[proc.cmd.index('-q:v') + 1], '2')
+            self.assertEqual(proc.cmd[proc.cmd.index('-q:v') + 1], '4')
 
 if __name__ == '__main__':
     unittest.main()

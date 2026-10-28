@@ -20,7 +20,7 @@ BRIGHTNESS_TIMEOUT = 10
 FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
 SIZE = '1920x1080'
 DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
-JPEG_QUALITY = 2   # ffmpeg -q:v for every JPEG the watcher writes (lower is better, 2 to 31); H23
+JPEG_QUALITY = 4   # ffmpeg -q:v for every JPEG the watcher writes (lower is better, 2 to 31); H23
 # rotation_degrees (config) -> ffmpeg filters; 0 = none
 ROTATION_FILTERS = {0: [], 90: ['transpose=1'], 180: ['hflip', 'vflip'], 270: ['transpose=2']}
 DEVICE = re.compile(r'\[(\d+)\] (.+)$')

@@ -8,7 +8,7 @@ import camera as cam
 DEFAULTS = {
     'rotation_degrees': 0,
     'min_board_fill_percent': 50,  # 0 = off
-    'jpeg_quality': 2,             # ffmpeg -q:v for every JPEG the watcher writes: 2 (best) to 31
+    'jpeg_quality': 4,             # ffmpeg -q:v for every JPEG the watcher writes: 2 (best) to 31
     'start_offset_seconds': 0.1,            # between the stream starts of one selection
     'selection_frame_delay_seconds': 2,     # frame checked this long after its stream started
     'retry_pause_seconds': 1,               # pause between two selections

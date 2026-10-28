@@ -16,7 +16,7 @@
   "selection_frame_delay_seconds": 2,
   "retry_pause_seconds": 1,
   "capture_retries": 2,
-  "jpeg_quality": 2,
+  "jpeg_quality": 4,
   "agile_idle_timeout_seconds": 600,
   "agile_timer_reset_events": {
     "request": "yes"
