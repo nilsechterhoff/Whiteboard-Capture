@@ -6,6 +6,7 @@ Run: cd watcher && python3 -m unittest -v test_answer
 import unittest
 
 import answer
+import whiteboard_watcher as ww
 
 
 class ParseTests(unittest.TestCase):
@@ -52,6 +53,40 @@ class ParseTests(unittest.TestCase):
     def test_empty_answer_is_an_error(self):
         with self.assertRaises(ValueError):
             answer.parse('   \n')
+
+
+class ChallengeTests(unittest.TestCase):
+
+    def test_none_gives_no_challenges(self):
+        parsed = answer.parse('whiteboard_visible: yes\nboard_fill_percent: 80\nchallenges_if_any: none\nis_board_camera: yes\n\nx')
+        self.assertEqual(parsed.challenges, [])
+        self.assertEqual(parsed.body, 'x')
+
+    def test_listed_challenges_come_before_the_conclusion(self):
+        raw = ('whiteboard_visible: yes\nboard_fill_percent: 70\nchallenges_if_any:\n'
+               '- glare; upper left; minor\n- hand in the frame; lower right; critical\n'
+               'is_board_camera: yes\n\nHELLO')
+        parsed = answer.parse(raw)
+        self.assertEqual(parsed.challenges, ['glare; upper left; minor', 'hand in the frame; lower right; critical'])
+        self.assertTrue(parsed.camera)
+        self.assertEqual(parsed.body, 'HELLO')
+
+    def test_challenge_on_the_key_line_is_kept_with_its_case(self):
+        parsed = answer.parse('whiteboard_visible: yes\nchallenges_if_any: Text cut off; top edge; minor\n\nx')
+        self.assertEqual(parsed.challenges, ['Text cut off; top edge; minor'])
+
+    def test_section_is_none_or_one_line_per_challenge(self):
+        self.assertEqual(answer.challenges_section([]), 'challenges_if_any: none')
+        self.assertEqual(answer.challenges_section(['a; b; minor', 'c; d; critical']),
+                         'challenges_if_any:\n- a; b; minor\n- c; d; critical')
+
+    def test_the_judge_puts_the_section_at_the_top_of_the_body(self):
+        class Describer(object):
+            def describe(self, photo, fields):
+                return 'whiteboard_visible: yes\nboard_fill_percent: 90\nchallenges_if_any: none\nis_board_camera: yes\n\nHELLO'
+        passes, body, label, _ = ww.judge(Describer(), {'request': '0003'}, 0, b'jpg')
+        self.assertTrue(passes)
+        self.assertEqual(body, 'challenges_if_any: none\n\nHELLO')
 
 
 class VerdictTests(unittest.TestCase):

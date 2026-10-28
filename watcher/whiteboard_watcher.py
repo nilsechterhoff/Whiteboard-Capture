@@ -249,7 +249,8 @@ LOG = logging.getLogger('whiteboard')
 
 def judge(describer, fields, min_fill, photo):
     """Describe one frame and apply the criteria (BL-034). Returns (passes, body, label, parsed).
-    The watcher's verdict counts; the agent's conclusion is only logged next to the measured values.
+    The body starts with the challenges_if_any section. The watcher's verdict counts; the agent's
+    conclusion is only logged next to the measured values.
     Raises DescribeError."""
     raw = describer.describe(photo, fields)
     try:
@@ -261,7 +262,12 @@ def judge(describer, fields, min_fill, photo):
              % ('yes' if parsed.visible else 'no', parsed.fill, min_fill or 'off',
                 'yes' if parsed.camera else 'no' if parsed.camera is not None else 'missing',
                 'yes' if passes else 'no'))
-    return passes, parsed.body, label, parsed
+    if parsed.challenges:
+        LOG.info('challenges: %s' % '; '.join(parsed.challenges))
+    body = answer.challenges_section(parsed.challenges)
+    if parsed.body:
+        body += '\n\n' + parsed.body
+    return passes, body, label, parsed
 
 
 def check_frame(describer, fields, min_fill, photo):
