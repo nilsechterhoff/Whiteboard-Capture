@@ -82,11 +82,36 @@ class ChallengeTests(unittest.TestCase):
 
     def test_the_judge_puts_the_section_at_the_top_of_the_body(self):
         class Describer(object):
-            def describe(self, photo, fields):
+            def describe(self, photo, fields, check_only=False):
                 return 'whiteboard_visible: yes\nboard_fill_percent: 90\nchallenges_if_any: none\nis_board_camera: yes\n\nHELLO'
         passes, body, label, _ = ww.judge(Describer(), {'request': '0003'}, 0, b'jpg')
         self.assertTrue(passes)
         self.assertEqual(body, 'challenges_if_any: none\n\nHELLO')
+
+
+class CheckOnlyTests(unittest.TestCase):
+
+    def test_check_only_passes_without_a_body(self):
+        self.assertEqual(answer.verdict(answer.Answer(True, 90, True, ''), 80, need_body=False), (True, 'ok'))
+
+    def test_check_only_still_fails_on_visibility_and_fill(self):
+        self.assertEqual(answer.verdict(answer.Answer(False, 0, False, ''), 0, need_body=False)[1], 'not a whiteboard')
+        self.assertEqual(answer.verdict(answer.Answer(True, 40, True, ''), 80, need_body=False)[1],
+                         'board fill 40 below 80')
+
+    def test_judge_check_only_returns_no_description_text(self):
+        class Describer(object):
+            def __init__(self):
+                self.flags = []
+
+            def describe(self, photo, fields, check_only=False):
+                self.flags.append(check_only)
+                return 'whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\nHELLO'
+        describer = Describer()
+        passes, body, label, _ = ww.judge(describer, {'request': '0003'}, 0, b'jpg', check_only=True)
+        self.assertTrue(passes)
+        self.assertEqual(body, '')
+        self.assertEqual(describer.flags, [True])
 
 
 class VerdictTests(unittest.TestCase):

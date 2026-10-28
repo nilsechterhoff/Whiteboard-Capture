@@ -73,14 +73,15 @@ def _fill(value):
     return int(match.group(1))
 
 
-def verdict(parsed, min_fill):
-    """(passes, label) from the measured values. The watcher's own rule, not the agent's conclusion."""
+def verdict(parsed, min_fill, need_body=True):
+    """(passes, label) from the measured values. The watcher's own rule, not the agent's conclusion.
+    need_body False: a check-only answer has no description, and that is not a failure."""
     if not parsed.visible:
         return False, 'not a whiteboard'
     if min_fill and parsed.fill is None:
         return False, 'board fill missing'
     if min_fill and parsed.fill < min_fill:
         return False, 'board fill %d below %d' % (parsed.fill, min_fill)
-    if not parsed.body:
+    if need_body and not parsed.body:
         return False, 'describe: empty description'
     return True, 'ok'

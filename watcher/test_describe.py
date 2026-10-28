@@ -82,6 +82,24 @@ class DescribeTests(unittest.TestCase):
         self.assertIn("'is_board_camera: yes'", prompt)
         self.assertIn('marker_color=red', prompt)
 
+    def test_check_only_prompt_asks_for_the_criteria_and_no_description(self):
+        prompt = desc.build_prompt({'request': '0003'}, check_only=True)
+        self.assertIn("'whiteboard_visible: yes'", prompt)
+        self.assertIn("'is_board_camera: yes'", prompt)
+        self.assertIn('do not describe the board', prompt)
+        self.assertNotIn('describe only, do not interpret', prompt)
+        self.assertNotIn('challenges_if_any', prompt)
+
+    def test_full_prompt_still_asks_for_the_description(self):
+        prompt = desc.build_prompt({'request': '0003'})
+        self.assertIn('describe only, do not interpret', prompt)
+        self.assertIn('challenges_if_any', prompt)
+
+    def test_check_only_flag_reaches_the_command(self):
+        fake = FakeClaude()
+        self.describer(fake).describe(b'jpg', FIELDS, check_only=True)
+        self.assertIn('do not describe the board', fake.cmd[2])
+
     def test_prompt_states_the_required_fill_only_when_the_check_is_on(self):
         self.assertIn('(required: none)', desc.build_prompt({'request': '0003'}))
         self.assertIn('(required: at least 80)', desc.build_prompt({'request': '0003'}, min_fill=80))

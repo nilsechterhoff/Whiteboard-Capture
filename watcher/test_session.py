@@ -43,7 +43,7 @@ class Lean(object):
         self.calls = 0
         self.answer = answer
 
-    def describe(self, photo, fields):
+    def describe(self, photo, fields, check_only=False):
         self.calls += 1
         return self.answer
 

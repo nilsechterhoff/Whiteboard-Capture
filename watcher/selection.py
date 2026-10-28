@@ -146,20 +146,6 @@ class ParallelCameras(object):
         self._close_all()
         return result
 
-    def warm(self, indices, last_board):
-        """Headstart (BL-037): open the stream of the likely board camera (the remembered one, else
-        the first listed) and keep it as the open camera. Nothing is checked or described; the next
-        request checks this stream first. Returns the index, or None if no camera is listed.
-        Raises OSError if ffmpeg cannot be started."""
-        if not indices:
-            return None
-        index = last_board if last_board in indices else indices[0]
-        self._close_all()
-        self._start(index)
-        self.open_index = index
-        LOG.info('headstart: stream on camera %d opened, not checked' % index)
-        return index
-
     def note_event(self, name):
         if self.reset_events.get(name) == 'yes':
             self.last_event = self.clock()

@@ -98,10 +98,12 @@ class FakeDescriber(object):
         self.default = default
         self.calls = []    # photos
         self.fields = []   # fields per call
+        self.check_only = []  # the check_only flag per call
 
-    def describe(self, photo, fields):
+    def describe(self, photo, fields, check_only=False):
         self.calls.append(photo)
         self.fields.append(dict(fields))
+        self.check_only.append(check_only)
         answer = self.answers.get(photo, self.default)
         if answer.startswith('ERR:'):
             raise ww.DescribeError(answer[4:])
@@ -139,19 +141,6 @@ class FakeMemory(object):
     def remember(self, index):
         self.remembered.append(index)
         self.last = index
-
-
-class WarmCameras(FakeCameras):
-    """Cameras that can open the remembered camera's stream (headstart)."""
-
-    def warm(self, indices, last_board):
-        self.warmed = (list(indices), last_board)
-        return indices[0] if indices else None
-
-
-class WarmDescriber(FakeDescriber):
-    def warm(self, model):
-        self.warmed = model
 
 
 class SelectingCameras(FakeCameras):
@@ -215,6 +204,11 @@ class SnapshotFlowTests(unittest.TestCase):
         self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
         self.assertNotIn('/Images/image-0003.jpg', store.files)
 
+    def test_the_image_agent_is_only_asked_for_the_check_never_the_description(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\n')
+        self.assertTrue(describer.check_only)
+        self.assertTrue(all(describer.check_only))
+
     def test_no_description_text_is_written_or_sent_to_the_picture_file(self):
         store, describer, results = self.run_snapshot('request_type: snapshot\n')
         self.assertNotIn('HELLO', store.text('/Descriptions/description-0003.md'))
@@ -236,32 +230,78 @@ class SnapshotFlowTests(unittest.TestCase):
         self.assertIn('code: IMAGE_UPLOAD_FAILED', store.text('/status.md'))
 
 
+class CrashRecoveryTests(unittest.TestCase):
+    """Item 4: a snapshot's photo only ever goes to Snapshots/; headstart uploads no image."""
+
+    SNAP = 'saved\nWBC_SNAP_0003_Nils_20261028.jpg\n'
+
+    def run_pass(self, store, results):
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, FakeCameras([0]), FakeDescriber(), FakeMemory(None), watch, results, NOW,
+                           SETTINGS)
+
+    def test_image_target_is_the_snapshot_file_for_a_snapshot_and_images_otherwise(self):
+        self.assertEqual(ww.image_target('0003', self.SNAP), '/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg')
+        self.assertEqual(ww.image_target('0003', 'picture: 1920x1080, 90 KB\nstatus: ok\n'), '/Images/image-0003.jpg')
+        self.assertEqual(ww.image_target('0003', 'saved'), '/Images/image-0003.jpg')
+        self.assertEqual(ww.image_target('0003', None), '/Images/image-0003.jpg')
+
+    def test_local_snapshot_copy_without_description_is_delivered_to_snapshots_only(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        results = FakeResults({'0003': (b'photo', self.SNAP)})
+        self.run_pass(store, results)
+        self.assertEqual(store.files['/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg'], b'photo')
+        self.assertFalse([p for p in store.files if p.startswith('/Images/')])
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), self.SNAP)
+
+    def test_snapshot_description_with_missing_image_resumes_into_snapshots(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        store.files['/Descriptions/description-0003.md'] = self.SNAP.encode('utf-8')
+        results = FakeResults({'0003': (b'photo', self.SNAP)})
+        self.run_pass(store, results)
+        self.assertEqual(store.files['/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg'], b'photo')
+        self.assertFalse([p for p in store.files if p.startswith('/Images/')])
+
+    def test_headstart_uploads_no_image_even_when_its_description_has_no_image(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: headstart\n'})
+        store.files['/Descriptions/description-0003.md'] = b'ready\n'
+        results = FakeResults()
+        results.mark_done('0003')
+        self.run_pass(store, results)
+        self.assertFalse([p for p in store.files if p.startswith(('/Images/', '/Snapshots/'))])
+
+
 class HeadstartTests(unittest.TestCase):
+    """Headstart (BL-037, check-only): the real selection, no description, no photo upload."""
 
     def run_headstart(self, cameras, describer=None, memory=None):
         store = FakeStore({'request-0003.yaml': VALID + 'request_type: headstart\n'})
-        describer = describer or WarmDescriber()
+        describer = describer or FakeDescriber()
         memory = memory or FakeMemory(None)
         results = FakeResults()
         watch = Watch(machine='test-mac', clock=lambda: 1000.0)
         ww.process_pending(store, cameras, describer, memory, watch, results, NOW, SETTINGS)
-        return store, describer
+        return store, describer, memory
 
-    def test_ready_when_a_stream_is_open_and_nothing_is_described_or_photographed(self):
-        cameras = WarmCameras([0, 1])
-        store, describer = self.run_headstart(cameras, memory=FakeMemory(1))
+    def test_ready_after_a_passing_check_with_no_description_and_no_photo(self):
+        store, describer, memory = self.run_headstart(SelectingCameras([0, 1]))
         self.assertEqual(store.text('/Descriptions/description-0003.md'), 'ready\n')
-        self.assertEqual(cameras.warmed, ([0, 1], 1))
-        self.assertEqual(cameras.captures, [])
-        self.assertEqual(describer.calls, [])
-        self.assertEqual(describer.warmed, 'haiku')
+        self.assertEqual(describer.check_only, [True])
+        self.assertEqual(memory.remembered, [0])
         self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
-        self.assertNotIn('/Images/image-0003.jpg', store.files)
+        self.assertFalse([p for p in store.files if p.startswith('/Images/') or p.startswith('/Snapshots/')])
 
-    def test_no_board_camera_when_no_stream_opens(self):
-        store, describer = self.run_headstart(FakeCameras([0]))
+    def test_no_board_camera_when_no_camera_passes_the_check(self):
+        describer = FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
+        store, describer, memory = self.run_headstart(SelectingCameras([0]), describer=describer)
         self.assertEqual(store.text('/Descriptions/description-0003.md'), 'no board camera\n')
         self.assertIn('code: CAMERA_FAILED', store.text('/status.md'))
+        self.assertEqual(memory.remembered, [])
+        self.assertTrue(all(describer.check_only))
+
+    def test_no_board_camera_when_cameras_cannot_select(self):
+        store, describer, memory = self.run_headstart(FakeCameras([0]))
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'no board camera\n')
         self.assertEqual(describer.calls, [])
 
 
@@ -803,7 +843,7 @@ class OrderAndStatusTests(unittest.TestCase):
 
     def test_unexpected_exception_in_describe_is_unknown_error(self):
         class Broken(object):
-            def describe(self, photo, fields):
+            def describe(self, photo, fields, check_only=False):
                 raise RuntimeError('bad state')
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_pass(store, describer=Broken())
