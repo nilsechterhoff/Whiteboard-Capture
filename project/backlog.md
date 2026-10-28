@@ -58,3 +58,15 @@ Not planned work. Watch in daily use; act if they recur.
 |---|---|---|---|---|
 | 1 | RC-001 | Post-wake collision (test H22, request 0099, 2026-10-28): right after the Mac woke, both selection streams landed on the same (room) camera despite the 0.1 s start offset; the retry budget was already used up during the sleep, so the request failed. Lab rate otherwise: 0 of 40 collisions at 0.1 s | – | Under observation |
 | 2 | RC-002 | Test script for sleep tests is unreliable (H22): `pmset sleepnow` returns before the Mac sleeps, so post-sleep requests were sent too early, and the script's wait limit kept running through the sleep (picture 0094 not saved). Fix before any future sleep test | – | Under observation |
+
+## Commercialization
+
+Ideas for a possible later beta release (Nils, 2026-10-28). Not planned yet.
+
+| Line # | ID | Item | Owner | Status |
+|---|---|---|---|---|
+| 1 | CM-001 | Fixed install location: run the watcher from an installed copy instead of the Git clone in `~/Developer`; data stays in `~/Library/Application Support/<app name>/` | – | Idea |
+| 2 | CM-002 | Bundle as a Mac app (installer or app bundle, start at login). Distribution to others needs Apple code signing and notarization | – | Idea |
+| 3 | CM-003 | Windows version (camera access, background service and paths differ; see the system-agnostic design goals) | – | Idea, later |
+| 4 | CM-004 | Brand name: working name "aiaiboard" (2026-10-28), not cleared; ideas and findings in the project doc `claude/brand-development.md` | – | Working name |
+
