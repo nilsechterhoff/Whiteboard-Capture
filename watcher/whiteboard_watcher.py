@@ -282,6 +282,35 @@ def board_passes(is_board, fill, min_fill):
     return min_fill == 0 or (fill is not None and fill >= min_fill)
 
 
+def check_frame(describer, fields, min_fill, photo):
+    """Describe one frame and apply the board check. Returns (passes, body, label). Raises DescribeError."""
+    raw = describer.describe(photo, fields)
+    is_board, body = split_answer(raw)
+    fill, body = split_fill(body)
+    if not board_passes(is_board, fill, min_fill):
+        if not is_board:
+            label = 'not a whiteboard'
+        elif fill is None:
+            label = 'board fill missing'
+        else:
+            label = 'board fill %s below %d' % (fill, min_fill)
+        return False, body, label
+    if not body:
+        return False, body, 'describe: empty description'
+    return True, body, 'ok'
+
+
+def keep_rejected(settings, number, rejected):
+    """Keep the photos the board check refused (local, never in Git); errors are logged, not raised."""
+    if not rejected:
+        return
+    try:
+        failed_photos.save_failed(settings.get('failed_photos_dir', ''), number, rejected,
+                                  settings.get('failed_photos_keep', 0))
+    except OSError as err:
+        LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -301,6 +330,24 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         fail(store, watch, results, number, ['camera: %s' % err], 'CAMERA_FAILED')
         return
     watch.camera_list(watch.clock() - started)
+    if hasattr(cameras, 'select_board'):
+        check = lambda index, photo: check_frame(describer, fields, settings.get('min_board_fill_percent', 0), photo)
+        try:
+            outcome = cameras.select_board([i for i, _ in devices], check, watch, memory.index())
+        except OSError as err:
+            LOG.info('request %s: the streams could not start (%s); lean path' % (number, err))
+            outcome = None
+        if outcome is not None:
+            if outcome.ok:
+                text = render_ok(number, fields, outcome.body) + '\n' + watch.block()
+                results.save(number, outcome.photo, text)  # local copy first: a restart never takes a new photo
+                memory.remember(outcome.index)
+                deliver(store, watch, results, number, outcome.photo, text)
+                return
+            keep_rejected(settings, number, outcome.rejected)
+            code = 'DESCRIBE_FAILED' if outcome.described else 'CAMERA_FAILED'
+            fail(store, watch, results, number, outcome.reasons or ['camera: no camera listed'], code)
+            return
     reasons = []
     rejected = []  # (camera, photo) of every try that was refused: kept for diagnosis
     described = False
@@ -346,12 +393,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         memory.remember(index)
         deliver(store, watch, results, number, photo, text)
         return
-    if rejected:
-        try:
-            failed_photos.save_failed(settings.get('failed_photos_dir', ''), number, rejected,
-                                      settings.get('failed_photos_keep', 0))
-        except OSError as err:
-            LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
+    keep_rejected(settings, number, rejected)
     code = 'DESCRIBE_FAILED' if described else 'CAMERA_FAILED'
     fail(store, watch, results, number, reasons or ['camera: no camera listed'], code)
 

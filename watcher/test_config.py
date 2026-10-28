@@ -59,8 +59,9 @@ class ConfigTests(unittest.TestCase):
 
 class BoardFillConfigTests(unittest.TestCase):
 
-    def test_default_is_off(self):
-        self.assertEqual(cfg.apply_defaults({})['min_board_fill_percent'], 0)
+    def test_default_is_50_and_0_is_off(self):
+        self.assertEqual(cfg.apply_defaults({})['min_board_fill_percent'], 50)
+        self.assertEqual(cfg.validate({'min_board_fill_percent': 0}), [])
 
     def test_range_0_to_100(self):
         self.assertEqual(cfg.validate({'min_board_fill_percent': 80}), [])
@@ -72,55 +73,60 @@ class BoardFillConfigTests(unittest.TestCase):
 
 class AgileConfigTests(unittest.TestCase):
 
-    def test_defaults_are_off_and_ten_minutes(self):
+    def test_defaults_are_ten_minutes_session_off_and_selection_settings(self):
         d = cfg.apply_defaults({})
-        self.assertEqual(d['agile_enabled'], 'no')
         self.assertEqual(d['agile_idle_timeout_seconds'], 600)
         self.assertEqual(d['agile_timer_reset_events'], {'request': 'yes'})
-        self.assertFalse(cfg.agile_on(d))
+        self.assertEqual(d['start_offset_seconds'], 0.1)
+        self.assertEqual(d['selection_frame_delay_seconds'], 2)
+        self.assertEqual(d['retry_pause_seconds'], 1)
+        self.assertEqual(d['capture_retries'], 2)
         self.assertFalse(cfg.session_on(d))
+        self.assertNotIn('agile_enabled', d)
 
     def test_values_are_checked(self):
-        self.assertEqual(cfg.validate({'agile_enabled': 'yes'}), [])
-        self.assertEqual(len(cfg.validate({'agile_enabled': 'maybe'})), 1)
-        self.assertEqual(len(cfg.validate({'agile_enabled': True})), 1)
         self.assertEqual(len(cfg.validate({'agile_idle_timeout_seconds': 0})), 1)
         self.assertEqual(len(cfg.validate({'agile_timer_reset_events': {'request': 'maybe'}})), 1)
+        self.assertEqual(len(cfg.validate({'agile_session': 'maybe'})), 1)
 
-    def test_disabled_means_lean_even_with_session_on(self):
-        c = cfg.apply_defaults({'agile_enabled': 'no', 'agile_session': 'yes'})
-        self.assertFalse(cfg.agile_on(c))
-        self.assertFalse(cfg.session_on(c))
+    def test_selection_values_are_checked(self):
+        self.assertEqual(cfg.validate({'start_offset_seconds': 0, 'selection_frame_delay_seconds': 2.5,
+                                       'retry_pause_seconds': 0, 'capture_retries': 0}), [])
+        self.assertEqual(len(cfg.validate({'start_offset_seconds': -0.1})), 1)
+        self.assertEqual(len(cfg.validate({'selection_frame_delay_seconds': '2'})), 1)
+        self.assertEqual(len(cfg.validate({'retry_pause_seconds': True})), 1)
+        self.assertEqual(len(cfg.validate({'capture_retries': -1})), 1)
+        self.assertEqual(len(cfg.validate({'capture_retries': 1.5})), 1)
 
-    def test_enabled_turns_agile_on_and_session_only_with_it(self):
-        self.assertTrue(cfg.agile_on({'agile_enabled': 'yes'}))
-        self.assertFalse(cfg.session_on({'agile_enabled': 'yes'}))
-        self.assertTrue(cfg.session_on({'agile_enabled': 'yes', 'agile_session': 'yes'}))
+    def test_session_needs_session_yes(self):
+        self.assertFalse(cfg.session_on({}))
+        self.assertTrue(cfg.session_on({'agile_session': 'yes'}))
 
 
-class LegacyModeTests(unittest.TestCase):
+class IgnoredKeysTests(unittest.TestCase):
 
-    def test_mode_agile_becomes_enabled_with_a_warning(self):
-        c = {'mode': 'agile'}
+    def test_agile_enabled_is_removed_with_one_warning(self):
+        c = {'agile_enabled': 'yes', 'camera_name': 'x'}
         warnings = cfg.normalize(c)
-        self.assertEqual(c['agile_enabled'], 'yes')
-        self.assertNotIn('mode', c)
+        self.assertNotIn('agile_enabled', c)
         self.assertEqual(len(warnings), 1)
         self.assertIn('agile_enabled', warnings[0])
+        self.assertIn('ignored', warnings[0])
 
-    def test_any_other_mode_becomes_disabled(self):
-        for old in ('lean', 'turbo', None):
-            c = {'mode': old}
-            cfg.normalize(c)
-            self.assertEqual(c['agile_enabled'], 'no')
+    def test_old_mode_key_is_removed_with_one_warning(self):
+        c = {'mode': 'agile'}
+        warnings = cfg.normalize(c)
+        self.assertNotIn('mode', c)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('mode', warnings[0])
 
-    def test_explicit_agile_enabled_wins_over_mode(self):
+    def test_both_keys_still_give_one_warning(self):
         c = {'mode': 'agile', 'agile_enabled': 'no'}
-        cfg.normalize(c)
-        self.assertEqual(c['agile_enabled'], 'no')
+        self.assertEqual(len(cfg.normalize(c)), 1)
+        self.assertEqual(c, {})
 
-    def test_no_mode_key_means_no_warning(self):
-        self.assertEqual(cfg.normalize({'agile_enabled': 'yes'}), [])
+    def test_no_such_key_means_no_warning(self):
+        self.assertEqual(cfg.normalize({'camera_name': 'x'}), [])
 
 
 class FailedPhotosConfigTests(unittest.TestCase):
