@@ -22,6 +22,7 @@ from whiteboard_watcher import CameraError, DarkFrameError, DescribeError
 
 LOG = logging.getLogger('whiteboard')
 FRAME_MAX_AGE = 3.0          # seconds: an older stream frame counts as no frame
+FRAME_WAIT = 6.0             # seconds: the first frame may come 2 to 4 s after the start (h17)
 SHARP_WIDTH = 480            # the sharpness score is taken on a 480 x 270 grayscale copy
 SHARP_HEIGHT = 270
 
@@ -164,8 +165,8 @@ class ParallelCameras(object):
         stream = self.streams[index]
         started = self.clock()
         try:
-            photo, brightness = cam.get_newest_frame(stream.path, self.clock(), dark_below=self.dark_below,
-                                                     run=self.run)
+            photo, brightness = cam.get_newest_frame(stream.path, self.clock(), max_age=FRAME_MAX_AGE,
+                                                     dark_below=self.dark_below, run=self.run)
         except CameraError as err:
             LOG.info('open stream on camera %d gave no usable frame (%s); selecting again' % (index, err))
             self._close_all()
@@ -199,8 +200,7 @@ class ParallelCameras(object):
                 self.sleep(wait)
             started = self.clock()
             try:
-                photo, brightness = cam.get_newest_frame(stream.path, self.clock(), dark_below=self.dark_below,
-                                                         run=self.run)
+                photo, brightness = self._wait_frame(stream)
             except DarkFrameError as err:
                 LOG.info('selection %d: camera %d dark, skipped without describe (%s)' % (number, index, err))
                 watch.camera_try(index, 'dark', self.clock() - started, None)
@@ -232,6 +232,20 @@ class ParallelCameras(object):
             LOG.info('selection %d: board on camera %d; guess %s was %s'
                      % (number, winner, guess, 'right' if winner == guess else 'wrong'))
         return out
+
+    def _wait_frame(self, stream):
+        """The newest frame of the stream; waits up to FRAME_WAIT for the first one to appear."""
+        deadline = self.clock() + FRAME_WAIT
+        while True:
+            try:
+                return cam.get_newest_frame(stream.path, self.clock(), max_age=FRAME_MAX_AGE,
+                                            dark_below=self.dark_below, run=self.run)
+            except DarkFrameError:
+                raise
+            except CameraError:
+                if self.clock() >= deadline:
+                    raise
+                self.sleep(0.2)
 
     def _check(self, check, index, photo):
         started = self.clock()

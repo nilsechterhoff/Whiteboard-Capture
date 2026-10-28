@@ -23,6 +23,7 @@ class FakeClock(object):
     def __init__(self):
         self.now = 1000.0
         self.sleeps = []
+        self.at = []            # (time, path): a stream frame that is written at that time
 
     def __call__(self):
         return self.now
@@ -30,6 +31,10 @@ class FakeClock(object):
     def sleep(self, seconds):
         self.sleeps.append(seconds)
         self.now += seconds
+        for due, path in list(self.at):
+            if due <= self.now:
+                _write_frame(path)
+                self.at.remove((due, path))
 
 
 class FakeProc(object):
@@ -52,19 +57,27 @@ class FakeProc(object):
 class FakePopen(object):
     """Starts a fake stream: writes one frame at once, like ffmpeg does with -update."""
 
-    def __init__(self, clock, fail=False):
+    def __init__(self, clock, fail=False, late=0.0):
         self.clock = clock
         self.fail = fail
+        self.late = late
         self.procs = []
 
     def __call__(self, cmd, **kwargs):
         if self.fail:
             raise OSError('ffmpeg not found')
         proc = FakeProc(cmd, self.clock())
-        with open(cmd[-1], 'wb') as handle:
-            handle.write(b'stream-frame')
+        if self.late:
+            self.clock.at.append((self.clock() + self.late, cmd[-1]))
+        else:
+            _write_frame(cmd[-1])
         self.procs.append(proc)
         return proc
+
+
+def _write_frame(path):
+    with open(path, 'wb') as handle:
+        handle.write(b'stream-frame')
 
 
 class FakeRun(object):
@@ -97,9 +110,9 @@ class FakeLean(object):
 
 class Harness(object):
     def __init__(self, folder, indices=(0, 1), dark=(), plan=None, retries=2, fail_popen=False,
-                 idle_timeout=600):
+                 idle_timeout=600, late=0.0):
         self.clock = FakeClock()
-        self.popen = FakePopen(self.clock, fail=fail_popen)
+        self.popen = FakePopen(self.clock, fail=fail_popen, late=late)
         self.run = FakeRun(dark)
         self.lean = FakeLean(indices)
         self.plan = {k: list(v) for k, v in (plan or {}).items()}
@@ -211,6 +224,14 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(out.index, 0)
         self.assertEqual([i for i, _ in h.checks], [0])
         self.assertIn('camera 1: dark', out.reasons)
+
+    def test_frame_that_comes_late_is_waited_for(self):
+        h = Harness(self.folder, plan={1: ['pass']}, late=2.5)
+        out = h.select()
+        self.assertTrue(out.ok)
+        self.assertEqual(out.index, 1)
+        index, when = h.checks[0]
+        self.assertGreaterEqual(when, h.popen.procs[1].started + 2.5)   # the check waited for the frame
 
     def test_sharpness_of_each_selection_frame_is_logged(self):
         h = Harness(self.folder, plan={1: ['pass']})
