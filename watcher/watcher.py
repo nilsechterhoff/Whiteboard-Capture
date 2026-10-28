@@ -10,8 +10,9 @@ Config: ~/Library/Application Support/whiteboard-watcher/config.json
   camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
   min_board_fill_percent (0 = off; default 50)
-Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
-        ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
+All local files are in one folder (BL-035), see README: ~/Library/Application Support/whiteboard-watcher/
+  whiteboard-watcher.log (no secrets), whiteboard-watcher-timings.csv (one row per request, no whiteboard
+  content), failed-photos/ (kept photos the board check refused), config.json, last_camera.json, work/, results/
 Python 3.9 standard library only.
 """
 
@@ -44,8 +45,8 @@ LAST_CAMERA_PATH = os.path.join(CONFIG_DIR, 'last_camera.json')
 EXAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')
 WORK_DIR = os.path.join(CONFIG_DIR, 'work')
 LOCK_PATH = os.path.join(CONFIG_DIR, 'watcher.lock')
-LOG_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher.log')
-TIMINGS_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher-timings.csv')
+LOG_PATH = os.path.join(CONFIG_DIR, 'whiteboard-watcher.log')
+TIMINGS_PATH = os.path.join(CONFIG_DIR, 'whiteboard-watcher-timings.csv')
 POLL_SECONDS = 1
 
 log = logging.getLogger('whiteboard')
@@ -182,7 +183,7 @@ def main(argv):
     settings = {'models': config['models'], 'default_model': config['default_model'],
                 'min_board_fill_percent': config['min_board_fill_percent'],
                 'failed_photos_keep': config['failed_photos_keep'],
-                'failed_photos_dir': os.path.join(os.path.dirname(LOG_PATH), config['failed_photos_folder'])}
+                'failed_photos_dir': os.path.join(CONFIG_DIR, config['failed_photos_folder'])}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
     if args.once:

@@ -27,7 +27,7 @@ CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watche
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 LABEL = 'com.nilsechterhoff.whiteboard-watcher'
 PLIST_PATH = os.path.expanduser('~/Library/LaunchAgents/%s.plist' % LABEL)
-LAUNCHD_LOG = os.path.expanduser('~/Library/Logs/whiteboard-watcher.launchd.log')
+LAUNCHD_LOG = os.path.join(CONFIG_DIR, 'whiteboard-watcher.launchd.log')  # one folder for local files (BL-035)
 # Starting values for config.json. Models live here, not in the watcher code.
 # The defaults come from config.example.json (BL-040), not from this file.
 EXAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')
