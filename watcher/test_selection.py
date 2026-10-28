@@ -350,6 +350,41 @@ class RequestFlowTests(unittest.TestCase):
         self.assertEqual(memory.remembered, [])
 
 
+class HeadstartStreamTests(unittest.TestCase):
+    """Headstart (BL-037): the stream is opened and kept, nothing is checked."""
+
+    def setUp(self):
+        self.folder = testroot.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.folder)
+
+    def test_warm_opens_the_remembered_camera_and_checks_nothing(self):
+        h = Harness(self.folder)
+        self.assertEqual(h.cameras.warm([0, 1], 1), 1)
+        self.assertEqual(sorted(h.cameras.streams), [1])
+        self.assertEqual(h.cameras.open_index, 1)
+        self.assertEqual(h.checks, [])
+
+    def test_warm_without_a_remembered_camera_takes_the_first_listed(self):
+        h = Harness(self.folder)
+        self.assertEqual(h.cameras.warm([0, 1], None), 0)
+
+    def test_warm_with_no_camera_returns_none(self):
+        h = Harness(self.folder)
+        self.assertIsNone(h.cameras.warm([], None))
+
+    def test_next_request_checks_the_warm_stream_first_without_reopening(self):
+        h = Harness(self.folder, plan={1: ['pass']})
+        h.cameras.warm([0, 1], 1)
+        streams_before = len(h.popen.procs)
+        outcome = h.select(last_board=1)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.index, 1)
+        self.assertEqual([index for index, _ in h.checks], [1])
+        self.assertEqual(len(h.popen.procs), streams_before)
+
+
 class JpegQualityTests(unittest.TestCase):
 
     def setUp(self):

@@ -140,6 +140,48 @@ class FakeMemory(object):
         self.last = index
 
 
+class WarmCameras(FakeCameras):
+    """Cameras that can open the remembered camera's stream (headstart)."""
+
+    def warm(self, indices, last_board):
+        self.warmed = (list(indices), last_board)
+        return indices[0] if indices else None
+
+
+class WarmDescriber(FakeDescriber):
+    def warm(self, model):
+        self.warmed = model
+
+
+class HeadstartTests(unittest.TestCase):
+
+    def run_headstart(self, cameras, describer=None, memory=None):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: headstart\n'})
+        describer = describer or WarmDescriber()
+        memory = memory or FakeMemory(None)
+        results = FakeResults()
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        ww.process_pending(store, cameras, describer, memory, watch, results, NOW, SETTINGS)
+        return store, describer
+
+    def test_ready_when_a_stream_is_open_and_nothing_is_described_or_photographed(self):
+        cameras = WarmCameras([0, 1])
+        store, describer = self.run_headstart(cameras, memory=FakeMemory(1))
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'ready\n')
+        self.assertEqual(cameras.warmed, ([0, 1], 1))
+        self.assertEqual(cameras.captures, [])
+        self.assertEqual(describer.calls, [])
+        self.assertEqual(describer.warmed, 'haiku')
+        self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
+        self.assertNotIn('/Images/image-0003.jpg', store.files)
+
+    def test_no_board_camera_when_no_stream_opens(self):
+        store, describer = self.run_headstart(FakeCameras([0]))
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'no board camera\n')
+        self.assertIn('code: CAMERA_FAILED', store.text('/status.md'))
+        self.assertEqual(describer.calls, [])
+
+
 class ParseRequestTests(unittest.TestCase):
 
     def parse(self, text, number='0003'):

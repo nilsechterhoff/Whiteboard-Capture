@@ -166,6 +166,18 @@ class SessionDescriber(object):
                     raise DescribeError('session reported an error')
                 return event.get('result', '')
 
+    def warm(self, model):
+        """Headstart (BL-037): start the session now, without a photo. A failure is logged; the next
+        describe starts the session again."""
+        try:
+            self._env()
+            if self.proc is None or self.model != model or self.proc.poll() is not None:
+                LOG.info('session: started by headstart (model %s)' % model)
+                self._start(model)
+        except (DescribeError, OSError) as err:
+            LOG.info('session: headstart could not start (%s)' % err)
+            self._stop()
+
     def describe(self, photo, fields):
         self._env()  # refuses if the key is set
         try:

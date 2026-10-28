@@ -310,6 +310,31 @@ def ok_text(number, fields, body, photo, watch):
     return facts + '\n' + render_ok(number, fields, body) + '\n' + watch.block()
 
 
+def headstart(store, cameras, describer, memory, watch, results, number, fields, devices):
+    """Headstart (BL-037): open the likely board camera's stream and the describe session. No photo
+    is described. The description says only 'ready', or 'no board camera' if no stream opened."""
+    index = None
+    try:
+        if hasattr(cameras, 'warm'):
+            index = cameras.warm([i for i, _ in devices], memory.index())
+        if index is not None and hasattr(describer, 'warm'):
+            describer.warm(fields['model'])
+    except OSError as err:
+        LOG.info('request %s: headstart streams could not start (%s)' % (number, err))
+        index = None
+    ok = index is not None
+    text = 'ready\n' if ok else 'no board camera\n'
+    results.mark_done(number)
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        watch.finish('description_upload_failed', None)
+        write_status(store, watch, number, False, False, False, 'DESCRIPTION_UPLOAD_FAILED')
+        return
+    watch.finish('ok' if ok else 'error', upload_s)
+    write_status(store, watch, number, ok, True, False, None if ok else 'CAMERA_FAILED')
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -329,6 +354,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         fail(store, watch, results, number, ['camera: %s' % err], 'CAMERA_FAILED')
         return
     watch.camera_list(watch.clock() - started)
+    if fields['request_type'] == 'headstart':
+        headstart(store, cameras, describer, memory, watch, results, number, fields, devices)
+        return
     if hasattr(cameras, 'select_board'):
         check = lambda index, photo: check_frame(describer, fields, settings.get('min_board_fill_percent', 0), photo)
         try:
