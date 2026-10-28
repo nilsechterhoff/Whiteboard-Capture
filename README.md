@@ -83,6 +83,7 @@ Captures a frame every ~20 s so Claude can read it in text mode. Built and teste
 | 6 | MVP B watcher log | `~/Library/Logs/whiteboard-watcher.log` |
 | 7 | MVP B timing log (one row per request, no whiteboard content) | `~/Library/Logs/whiteboard-watcher-timings.csv` |
 | 8b | MVP B selection and agile settings | `camera_name` must equal the device name exactly. `start_offset_seconds` (0.1), `selection_frame_delay_seconds` (2), `retry_pause_seconds` (1), `capture_retries` (2): see ADR-0012. `agile_idle_timeout_seconds` (600). `agile_session` yes/no (default no). `agile_enabled` and `mode` are ignored (agile is always on); the log warns once when they are present |
+| 8c | JPEG quality | `jpeg_quality` (2 to 31, default 2): the ffmpeg `-q:v` for every JPEG the watcher writes (single capture and open stream). Lower is better; a value without it made open-stream frames shrink from about 71 KB to 45 KB in 10 s (BL-036, H23) |
 | 8a | MVP B watcher settings | `watcher/config.example.json` (no secrets). `rotation_degrees`: 0, 90, 180 or 270; default 0 (Nils's config: 180). Any other value stops the watcher with a clear message |
 | 8 | MVP B background service (after your yes) | `~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist` and `~/Library/Logs/whiteboard-watcher.launchd.log`. Install: `python3 watcher/setup_dropbox.py --service`. Remove: `python3 watcher/setup_dropbox.py --uninstall` |
 | 4 | Lessons and camera facts (old camera branch) | [project/lessons-and-camera-facts.md](project/lessons-and-camera-facts.md) |
