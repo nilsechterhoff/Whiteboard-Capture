@@ -72,9 +72,20 @@ class ListTests(unittest.TestCase):
         fake = FakeFfmpeg()
         self.assertEqual(len(cam.list_cameras(run=fake)), 3)
 
-    def test_name_filter_is_case_insensitive_substring(self):
-        devices = cam.list_cameras('c930E', run=FakeFfmpeg())
+    def test_name_filter_is_the_exact_device_name(self):
+        devices = cam.list_cameras('Logitech Webcam C930e', run=FakeFfmpeg())
         self.assertEqual([i for i, _ in devices], [0, 1])
+
+    def test_substring_is_not_enough_and_the_error_lists_the_names(self):
+        with self.assertRaises(CameraError) as ctx:
+            cam.list_cameras('c930E', run=FakeFfmpeg())
+        self.assertIn('0 "Logitech Webcam C930e"', str(ctx.exception))
+        self.assertIn('2 "FaceTime HD Camera"', str(ctx.exception))
+
+    def test_name_matching_nothing_is_an_error_with_the_names(self):
+        with self.assertRaises(CameraError) as ctx:
+            cam.list_cameras('Nope', run=FakeFfmpeg())
+        self.assertIn('matches no device exactly', str(ctx.exception))
 
     def test_no_camera_listed_is_an_error(self):
         with self.assertRaises(CameraError):
@@ -154,7 +165,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_cameras_class_passes_settings_through(self):
         fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})
-        cameras = cam.Cameras(self.folder, 'c930', rotation_degrees=0, dark_below=10, run=fake)
+        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', rotation_degrees=0, dark_below=10, run=fake)
         self.assertEqual(cameras.capture(4), b'jpeg-1')
         self.assertEqual(cameras.list(), [(0, 'Logitech Webcam C930e'),
                                           (1, 'Logitech Webcam C930e')])

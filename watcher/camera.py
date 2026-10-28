@@ -44,7 +44,10 @@ def parse_video_devices(text):
 
 
 def list_cameras(name_filter='', run=subprocess.run):
-    """Video devices as [(index, name)]. Optional name filter (case-insensitive substring)."""
+    """Video devices as [(index, name)]. The optional name filter must equal the device name exactly.
+
+    If nothing matches exactly, the error names every device found (so the config can be fixed).
+    """
     cmd = [FFMPEG, '-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', '']
     try:
         done = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=LIST_TIMEOUT)
@@ -54,7 +57,12 @@ def list_cameras(name_filter='', run=subprocess.run):
         raise CameraError('ffmpeg listing timed out')
     devices = parse_video_devices(done.stderr.decode('utf-8', 'replace'))
     if name_filter:
-        devices = [d for d in devices if name_filter.lower() in d[1].lower()]
+        matches = [d for d in devices if d[1] == name_filter]
+        if not matches:
+            found = '; '.join('%d "%s"' % (index, name) for index, name in devices) or 'none'
+            raise CameraError('camera_name "%s" matches no device exactly; devices found: %s'
+                              % (name_filter, found))
+        devices = matches
     if not devices:
         raise CameraError('ffmpeg lists no camera')
     return devices
