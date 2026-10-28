@@ -163,4 +163,5 @@ This project follows [nilsechterhoff/standards](https://github.com/nilsechterhof
 | 9 | 0009 | [Camera-agnostic capture: try all cameras, remember the last working one (replaces the lookup by ID in ADR-0008)](docs/decisions/0009-camera-agnostic-capture-with-a-remembered-camera.md) | proposed (Nils sets the status) |
 | 10 | 0011 | [Agile mode: keep the camera and the describe session open while Nils brainstorms](docs/decisions/0011-agile-mode-with-an-open-camera-and-session.md) | accepted |
 | 11 | 0012 | [Parallel camera selection with a start offset and frame delay; agile always on](docs/decisions/0012-parallel-camera-selection-with-start-offset-and-agile-always-on.md) | accepted |
+| 12 | 0013 | [Config file as the only source of settings and their defaults](docs/decisions/0013-config-file-as-the-only-source-of-settings-and-defaults.md) | proposed (Nils sets the status) |
 | 10 | 0010 | [Use a time connector as the voice agent's clock](docs/decisions/0010-use-a-time-connector-as-the-voice-agents-clock.md) | accepted |
