@@ -3,6 +3,7 @@
 Run: cd watcher && python3 -m unittest -v test_whiteboard_watcher
 """
 
+import time
 import unittest
 
 import whiteboard_watcher as ww
@@ -151,6 +152,88 @@ class WarmCameras(FakeCameras):
 class WarmDescriber(FakeDescriber):
     def warm(self, model):
         self.warmed = model
+
+
+class SelectingCameras(FakeCameras):
+    """Selection stand-in: the first listed camera whose check passes is the board camera."""
+
+    def select_board(self, indices, check, watch, last_board):
+        out = _Outcome()
+        for index in indices:
+            photo = b'photo-%d' % index
+            passes, body, label = check(index, photo)
+            if passes:
+                out.ok, out.index, out.photo, out.body = True, index, photo, body
+                return out
+            out.reasons.append('camera %d: %s' % (index, label))
+        return out
+
+
+class _Outcome(object):
+    def __init__(self):
+        self.ok, self.index, self.photo, self.body = False, None, None, ''
+        self.reasons = []
+        self.rejected = []
+
+
+class SnapshotNameTests(unittest.TestCase):
+
+    def name(self, requested_by):
+        return ww.snapshot_name('0007', requested_by, time.mktime((2026, 10, 28, 12, 0, 0, 0, 0, -1)))
+
+    def test_name_is_the_first_six_letters_with_capital_and_the_date(self):
+        self.assertEqual(self.name('nils'), 'WBC_SNAP_0007_Nils_20261028.jpg')
+        self.assertEqual(self.name('Christian'), 'WBC_SNAP_0007_Christ_20261028.jpg')
+
+    def test_only_letters_and_digits_count(self):
+        self.assertEqual(self.name('mary ann'), 'WBC_SNAP_0007_Maryan_20261028.jpg')
+
+    def test_noname_when_nothing_is_left(self):
+        self.assertEqual(self.name('Noname'), 'WBC_SNAP_0007_Noname_20261028.jpg')
+        self.assertEqual(self.name('!!'), 'WBC_SNAP_0007_Noname_20261028.jpg')
+
+
+class SnapshotFlowTests(unittest.TestCase):
+
+    def run_snapshot(self, request, cameras=None, describer=None):
+        store = FakeStore({'request-0003.yaml': VALID + request})
+        describer = describer or FakeDescriber()
+        results = FakeResults()
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, cameras or SelectingCameras([0]), describer, FakeMemory(None), watch,
+                           results, NOW, SETTINGS)
+        return store, describer, results
+
+    def snapshot_path(self, name):
+        return '/Snapshots/WBC_SNAP_0003_%s_%s.jpg' % (name, time.strftime('%Y%m%d', time.localtime(NOW)))
+
+    def test_photo_is_saved_to_snapshots_and_the_description_is_saved_plus_name(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\nrequested_by: Nils\n')
+        path = self.snapshot_path('Nils')
+        self.assertEqual(store.files[path], b'photo-0')
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'saved\n%s\n' % path.rsplit('/', 1)[1])
+        self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
+        self.assertNotIn('/Images/image-0003.jpg', store.files)
+
+    def test_no_description_text_is_written_or_sent_to_the_picture_file(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\n')
+        self.assertNotIn('HELLO', store.text('/Descriptions/description-0003.md'))
+        self.assertIn(self.snapshot_path('Noname'), store.files)
+
+    def test_no_board_camera_is_an_error_and_nothing_is_saved(self):
+        store, describer, results = self.run_snapshot(
+            'request_type: snapshot\n', cameras=SelectingCameras([0]),
+            describer=FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
+        self.assertFalse([p for p in store.files if p.startswith('/Snapshots/')])
+        self.assertIn('code: CAMERA_FAILED', store.text('/status.md'))
+
+    def test_snapshot_upload_failure_is_an_image_error(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        store.fail_upload_on = '/Snapshots/'
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, SelectingCameras([0]), FakeDescriber(), FakeMemory(None), watch,
+                           FakeResults(), NOW, SETTINGS)
+        self.assertIn('code: IMAGE_UPLOAD_FAILED', store.text('/status.md'))
 
 
 class HeadstartTests(unittest.TestCase):

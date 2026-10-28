@@ -27,6 +27,7 @@ ALLOWED = {
     'scope': SCOPES,
 }
 NONAME = 'Noname'  # requested_by when the request gives none (BL-038 file names)
+SNAPSHOT_FOLDER = '/Snapshots'  # in the app folder; never cleaned up by the watcher (BL-038)
 
 
 class RequestError(ValueError):
@@ -335,6 +336,52 @@ def headstart(store, cameras, describer, memory, watch, results, number, fields,
     write_status(store, watch, number, ok, True, False, None if ok else 'CAMERA_FAILED')
 
 
+def snapshot_name(number, requested_by, now):
+    """WBC_SNAP_NNNN_Name_YYYYMMDD.jpg: NNNN is the request number; Name is the first 6 letters or
+    digits of requested_by, first letter capital ('Noname' if none is left)."""
+    letters = re.sub(r'[^A-Za-z0-9]', '', requested_by)[:6]
+    name = letters[:1].upper() + letters[1:] if letters else NONAME
+    return 'WBC_SNAP_%s_%s_%s.jpg' % (number, name, time.strftime('%Y%m%d', time.localtime(now)))
+
+
+def snapshot(store, cameras, describer, memory, watch, results, settings, number, fields, devices):
+    """Snapshot (BL-038): one photo from the board camera, saved to Snapshots/ in Dropbox. The watcher
+    never deletes anything there. The description says only 'saved' and the file name."""
+    if not hasattr(cameras, 'select_board'):
+        fail(store, watch, results, number, ['camera: snapshots need the camera selection'], 'CAMERA_FAILED')
+        return
+    min_fill = settings.get('min_board_fill_percent', 0)
+    check = lambda index, photo: check_frame(describer, fields, min_fill, photo)
+    try:
+        outcome = cameras.select_board([i for i, _ in devices], check, watch, memory.index())
+    except OSError as err:
+        fail(store, watch, results, number, ['camera: the streams could not start (%s)' % err], 'CAMERA_FAILED')
+        return
+    if not outcome.ok:
+        fail(store, watch, results, number, outcome.reasons or ['camera: no board camera'], 'CAMERA_FAILED')
+        return
+    memory.remember(outcome.index)
+    name = snapshot_name(number, fields['requested_by'], watch.clock())
+    text = 'saved\n%s\n' % name
+    results.save(number, outcome.photo, text)  # local copy first
+    try:
+        publish(store, SNAPSHOT_FOLDER + '/' + name, outcome.photo)
+    except OSError:
+        results.mark_done(number)
+        watch.finish('image_upload_failed', None)
+        write_status(store, watch, number, False, False, False, 'IMAGE_UPLOAD_FAILED')
+        return
+    results.mark_done(number)
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        watch.finish('description_upload_failed', None)
+        write_status(store, watch, number, False, False, True, 'DESCRIPTION_UPLOAD_FAILED')
+        return
+    watch.finish('ok', upload_s)
+    write_status(store, watch, number, True, True, True)
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -356,6 +403,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
     watch.camera_list(watch.clock() - started)
     if fields['request_type'] == 'headstart':
         headstart(store, cameras, describer, memory, watch, results, number, fields, devices)
+        return
+    if fields['request_type'] == 'snapshot':
+        snapshot(store, cameras, describer, memory, watch, results, settings, number, fields, devices)
         return
     if hasattr(cameras, 'select_board'):
         check = lambda index, photo: check_frame(describer, fields, settings.get('min_board_fill_percent', 0), photo)
