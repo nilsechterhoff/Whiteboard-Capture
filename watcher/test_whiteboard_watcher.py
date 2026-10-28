@@ -145,17 +145,47 @@ class ParseRequestTests(unittest.TestCase):
     def parse(self, text, number='0003'):
         return ww.parse_request(text, number, MODELS, 'haiku')
 
-    def test_minimal_request_gets_default_model(self):
-        self.assertEqual(self.parse(VALID), {'request': '0003', 'model': 'haiku'})
+    def test_minimal_request_gets_default_model_type_and_name(self):
+        self.assertEqual(self.parse(VALID), {'request': '0003', 'model': 'haiku',
+                                             'request_type': 'interaction', 'requested_by': 'Noname'})
+
+    def test_requested_by_is_kept_and_empty_means_noname(self):
+        self.assertEqual(self.parse(VALID + 'requested_by: Nils\n')['requested_by'], 'Nils')
+        self.assertEqual(self.parse(VALID + 'requested_by:\n')['requested_by'], 'Noname')
+        self.assertEqual(self.parse(VALID + 'requested_by:   \n')['requested_by'], 'Noname')
+
+    def test_request_type_is_interaction_headstart_or_snapshot(self):
+        for kind in ('interaction', 'headstart', 'snapshot'):
+            self.assertEqual(self.parse(VALID + 'request_type: %s\n' % kind)['request_type'], kind)
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'request_type: photo\n')
+
+    def test_scope_is_full_or_changes(self):
+        self.assertEqual(self.parse(VALID + 'scope: changes\n')['scope'], 'changes')
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'scope: some\n')
+
+    def test_old_mode_is_read_as_scope_once(self):
+        fields = self.parse(VALID + 'mode: snapshot\n')
+        self.assertEqual(fields['scope'], 'full')
+        self.assertEqual(fields['legacy_mode'], 'snapshot')
+        self.assertNotIn('mode', fields)
+        self.assertEqual(self.parse(VALID + 'mode: diff\n')['scope'], 'changes')
+
+    def test_old_mode_with_scope_or_bad_value_is_rejected(self):
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'mode: snapshot\nscope: full\n')
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'mode: other\n')
 
     def test_all_fields_and_blank_and_comment_lines(self):
         text = ('# note\n\nrequest: "0003"\nmarker_color: red\n'
-                "region_v: 'top'\nregion_h: left\nmode: snapshot\n")
+                "region_v: 'top'\nregion_h: left\nscope: full\n")
         fields = self.parse(text)
         self.assertEqual(fields['marker_color'], 'red')
         self.assertEqual(fields['region_v'], 'top')
         self.assertEqual(fields['region_h'], 'left')
-        self.assertEqual(fields['mode'], 'snapshot')
+        self.assertEqual(fields['scope'], 'full')
 
     def test_model_field_is_taken_when_allowed(self):
         self.assertEqual(self.parse(VALID + 'model: sonnet\n')['model'], 'sonnet')
@@ -179,11 +209,11 @@ class ParseRequestTests(unittest.TestCase):
 
     def test_missing_request_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            self.parse('mode: snapshot\n')
+            self.parse('scope: full\n')
 
     def test_duplicate_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            self.parse(VALID + 'mode: snapshot\nmode: diff\n')
+            self.parse(VALID + 'scope: full\nscope: changes\n')
 
     def test_line_that_is_not_name_value_rejected(self):
         for bad in ['- red\n', 'marker_color:\n', 'nested:\n  a: b\n']:
@@ -425,12 +455,19 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(handled, [])
         self.assertEqual(cameras.captures, [])
 
-    def test_mode_diff_is_described_as_snapshot_with_note(self):
-        store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})
+    def test_scope_changes_is_described_as_full_with_note(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'scope: changes\n'})
         self.run_one(store)
         desc = self.description(store)
         self.assertIn('status: ok', desc)
-        self.assertIn('mode diff is not supported yet', desc)
+        self.assertIn('scope changes is not supported yet', desc)
+
+    def test_old_mode_gets_one_note_and_is_not_in_the_fields_line(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})
+        self.run_one(store)
+        desc = self.description(store)
+        self.assertEqual(desc.count('field mode is replaced by scope'), 1)
+        self.assertNotIn('legacy_mode', desc)
 
     def test_ok_description_ends_with_timing_block_and_no_final_upload_time(self):
         store = FakeStore({'request-0003.yaml': VALID})

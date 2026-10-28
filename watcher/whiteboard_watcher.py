@@ -14,14 +14,19 @@ import picture
 import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
-FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]+(.+)$')
+FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]*(.*)$')  # an empty value is allowed (requested_by)
 MAX_REQUEST_AGE = 120  # seconds; older requests are closed as "expired", no photo
+REQUEST_TYPES = ('interaction', 'headstart', 'snapshot')  # BL-037, BL-038; default interaction
+SCOPES = ('full', 'changes')                              # interaction only; 'changes' is a placeholder
+LEGACY_MODES = {'snapshot': 'full', 'diff': 'changes'}   # the old mode field, read once with a note
 ALLOWED = {
     'marker_color': ('black', 'red', 'green', 'blue'),
     'region_v': ('top', 'middle', 'bottom'),
     'region_h': ('left', 'center', 'right'),
-    'mode': ('snapshot', 'diff'),
+    'request_type': REQUEST_TYPES,
+    'scope': SCOPES,
 }
+NONAME = 'Noname'  # requested_by when the request gives none (BL-038 file names)
 
 
 class RequestError(ValueError):
@@ -73,14 +78,23 @@ def parse_request(text, number, models, default_model):
         if key in fields:
             raise RequestError('duplicate field: %s' % key)
         fields[key] = value
-    unknown = sorted(set(fields) - set(ALLOWED) - set(['request', 'model']))
+    unknown = sorted(set(fields) - set(ALLOWED) - set(['request', 'model', 'requested_by', 'mode']))
     if unknown:
         raise RequestError('unknown field: %s' % unknown[0])
     if fields.get('request') != number:
         raise RequestError('request field must be "%s"' % number)
+    if 'mode' in fields:  # old name of scope: read once, the description says so
+        if 'scope' in fields:
+            raise RequestError('use scope; mode is the old name and cannot be given with it')
+        if fields['mode'] not in LEGACY_MODES:
+            raise RequestError('mode: invalid value "%s"' % fields['mode'])
+        fields['legacy_mode'] = fields.pop('mode')
+        fields['scope'] = LEGACY_MODES[fields['legacy_mode']]
     for key, allowed in sorted(ALLOWED.items()):
         if key in fields and fields[key] not in allowed:
             raise RequestError('%s: invalid value "%s"' % (key, fields[key]))
+    fields['request_type'] = fields.get('request_type', 'interaction')
+    fields['requested_by'] = fields.get('requested_by', '').strip() or NONAME
     if 'model' not in fields:
         fields['model'] = default_model
     elif fields['model'] not in models:
@@ -117,10 +131,12 @@ def render_error(number, reasons):
 
 
 def render_ok(number, fields, body):
-    others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k != 'request')
+    others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k not in ('request', 'legacy_mode'))
     lines = ['status: ok', 'request: "%s"' % number, 'fields: %s' % (others or 'none')]
-    if fields.get('mode') == 'diff':
-        lines.append('note: mode diff is not supported yet; this is a snapshot')
+    if 'legacy_mode' in fields:
+        lines.append('note: field mode is replaced by scope; read as scope %s' % fields['scope'])
+    if fields.get('scope') == 'changes':
+        lines.append('note: scope changes is not supported yet; this is a full description')
     return '\n'.join(lines) + '\n\n' + body.strip() + '\n'
 
 
