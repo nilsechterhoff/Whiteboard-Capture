@@ -1,7 +1,7 @@
 """Describe step: headless Claude Code (claude -p) reads one photo and answers.
 
-The first line of the answer is 'whiteboard: yes' or 'whiteboard: no' (checked by
-whiteboard_watcher.split_answer). Only Read is allowed. Refuses to run if
+The answer starts with the measured criteria (answer.py), then the description if the agent
+concludes it is the board camera. Only Read is allowed. Refuses to run if
 ANTHROPIC_API_KEY is set, so nothing is billed to an API key. Standard library only.
 """
 
@@ -23,38 +23,43 @@ TIMEOUT = 120         # hard limit per run, seconds
 PHOTO_NAME = 'describe-photo.jpg'
 
 
-def build_prompt(fields, photo_ref=None):
+def build_prompt(fields, photo_ref=None, min_fill=0):
     """photo_ref None: the lean call reads PHOTO_NAME in the work folder; a session passes the
-    attached image instead."""
+    attached image instead. min_fill: the board fill the watcher requires (0 = no requirement)."""
     others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k != 'request')
     start = ("Read the image file %s in this folder. " % PHOTO_NAME if photo_ref is None
              else 'Look at the attached image. ')
+    fill_rule = 'at least %d' % min_fill if min_fill else 'none'
     return (
         start +
-        "The first line of your answer must be exactly 'whiteboard: yes' if the image shows "
-        "a whiteboard with handwriting, otherwise exactly 'whiteboard: no'. "
-        "If the answer is no, stop after that line. "
-        "If yes, the second line must be 'fill: NN', where NN is the percentage of the whole frame "
-        "covered by the real whiteboard surface. Count only the board itself: not reflections in "
-        "mirrors, screens, posters, windows or walls. Give your best estimate as a whole number. "
-        "If yes, then describe only, do not interpret: "
+        "Answer with one line per criterion, in this order, nothing before them. "
+        "'whiteboard_visible: yes' if the image shows a whiteboard with handwriting, otherwise "
+        "'whiteboard_visible: no' (required: yes). "
+        "'board_fill_percent: NN', where NN is a whole number from 0 to 100: the percentage of the "
+        "whole frame covered by the real whiteboard surface. Count only the board itself: not "
+        "reflections in mirrors, screens, posters, windows or walls. Write 0 if no board is visible "
+        "(required: %s). "
+        "'is_board_camera: yes' if every required criterion is met, otherwise 'is_board_camera: no'. "
+        "If is_board_camera is no, stop after that line. "
+        "If yes, leave one blank line, then describe only, do not interpret: "
         "(1) the text, grouped by region; "
         "(2) the shapes, arrows and what connects to what; "
         "(3) a short summary. "
         "Request fields: %s. Honour marker_color and region fields if given. "
         "Plain text, no tool use other than reading the image."
-    ) % (others or 'none')
+    ) % (fill_rule, others or 'none')
 
 
 class Describer(object):
 
-    def __init__(self, folder, models, timeout=TIMEOUT, run=subprocess.run, environ=None):
+    def __init__(self, folder, models, timeout=TIMEOUT, run=subprocess.run, environ=None, min_fill=0):
         """`models` maps the short names from the config file to model IDs."""
         self.folder = folder
         self.models = models
         self.timeout = timeout
         self.run = run
         self.environ = dict(os.environ if environ is None else environ)
+        self.min_fill = min_fill
 
     def describe(self, photo, fields):
         if self.environ.get('ANTHROPIC_API_KEY'):
@@ -65,7 +70,7 @@ class Describer(object):
         env = dict(self.environ)
         env.pop('ANTHROPIC_API_KEY', None)
         model = self.models[fields['model']]
-        cmd = [CLAUDE, '-p', build_prompt(fields), '--model', model,
+        cmd = [CLAUDE, '-p', build_prompt(fields, min_fill=self.min_fill), '--model', model,
                '--allowedTools', 'Read', '--add-dir', self.folder,
                '--output-format', 'json']
         try:
@@ -99,7 +104,7 @@ class SessionDescriber(object):
     """
 
     def __init__(self, folder, models, lean, restart_after=20, timeout=TIMEOUT,
-                 popen=subprocess.Popen, read_event=None, environ=None):
+                 popen=subprocess.Popen, read_event=None, environ=None, min_fill=0):
         self.folder = folder
         self.models = models
         self.lean = lean
@@ -108,6 +113,7 @@ class SessionDescriber(object):
         self.popen = popen
         self.read_event = read_event or _read_event
         self.environ = dict(os.environ if environ is None else environ)
+        self.min_fill = min_fill
         self.proc = None
         self.model = None
         self.count = 0
@@ -141,7 +147,7 @@ class SessionDescriber(object):
         message = {'type': 'user', 'message': {'role': 'user', 'content': [
             {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
                                          'data': base64.b64encode(photo).decode('ascii')}},
-            {'type': 'text', 'text': build_prompt(fields, photo_ref='attached')}]}}
+            {'type': 'text', 'text': build_prompt(fields, photo_ref='attached', min_fill=self.min_fill)}]}}
         self.proc.stdin.write((json.dumps(message) + '\n').encode('utf-8'))
         self.proc.stdin.flush()
         deadline = time.time() + self.timeout

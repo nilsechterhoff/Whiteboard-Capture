@@ -169,10 +169,11 @@ def main(argv):
     atexit.register(parallel.close)
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     cameras = Timed(parallel, 'camera')
-    lean_describer = Describer(WORK_DIR, config['models'])
+    lean_describer = Describer(WORK_DIR, config['models'], min_fill=config['min_board_fill_percent'])
     if config_mod.session_on(config):
         describer = Timed(describe_mod.SessionDescriber(
-            WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests']), 'describe')
+            WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests'],
+            min_fill=config['min_board_fill_percent']), 'describe')
     else:
         describer = Timed(lean_describer, 'describe')
     memory = Memory()

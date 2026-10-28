@@ -129,7 +129,7 @@ class SessionTests(unittest.TestCase):
     def test_prompt_for_session_refers_to_the_attached_image(self):
         prompt = desc.build_prompt(FIELDS, photo_ref='attached')
         self.assertIn('attached image', prompt)
-        self.assertIn("exactly 'whiteboard: yes'", prompt)
+        self.assertIn("'whiteboard_visible: yes'", prompt)
 
 
 if __name__ == '__main__':

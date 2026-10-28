@@ -343,7 +343,7 @@ class RequestFlowTests(unittest.TestCase):
 
     def test_no_board_frame_writes_an_error_and_keeps_the_rejected_photos(self):
         h = Harness(self.folder, retries=2)
-        store, describer, memory = self.run_request(h, answer='whiteboard: no')
+        store, describer, memory = self.run_request(h, answer='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
         self.assertEqual(len(describer.calls), 6)       # 2 cameras, 3 selections
         self.assertTrue(store.text('/Descriptions/description-0003.md').startswith('status: error\n'))
         self.assertNotIn('/Images/image-0003.jpg', store.files)

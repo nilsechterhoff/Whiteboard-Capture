@@ -8,6 +8,7 @@ Python 3.9 standard library only.
 import logging
 import re
 
+import answer
 import failed_photos
 import picture
 import time
@@ -21,8 +22,6 @@ ALLOWED = {
     'region_h': ('left', 'center', 'right'),
     'mode': ('snapshot', 'diff'),
 }
-WHITEBOARD_YES = 'whiteboard: yes'
-WHITEBOARD_NO = 'whiteboard: no'
 
 
 class RequestError(ValueError):
@@ -88,34 +87,6 @@ def parse_request(text, number, models, default_model):
         raise RequestError('model: invalid value "%s"; allowed: %s' % (
             fields['model'], ', '.join(sorted(models))))
     return fields
-
-
-def split_answer(text):
-    """Split a describe answer whose first line is 'whiteboard: yes' or 'whiteboard: no'."""
-    lines = text.strip().splitlines()
-    if not lines:
-        raise DescribeError('empty answer')
-    first = lines[0].strip().lower()
-    body = '\n'.join(lines[1:]).strip()
-    if first == WHITEBOARD_YES:
-        return True, body
-    if first == WHITEBOARD_NO:
-        return False, body
-    raise DescribeError('answer did not start with a whiteboard line')
-
-
-def split_fill(body):
-    """Take the 'fill: NN' line out of the describe body (it must be among the first two lines).
-    Returns (fill as int 0 to 100, or None if missing or unparsable; body without that line).
-    A missing or unparsable value is None: with the check on, it counts as a failed check."""
-    lines = body.splitlines()
-    for i, line in enumerate(lines[:2]):
-        match = re.match(r'^\s*fill\s*:\s*(\d{1,3})\s*%?\s*$', line, re.IGNORECASE)
-        if match:
-            value = int(match.group(1))
-            rest = '\n'.join(lines[:i] + lines[i + 1:]).strip()
-            return (value if value <= 100 else None), rest
-    return None, body
 
 
 def camera_order(indices, remembered):
@@ -276,29 +247,27 @@ def capture_once_or_retry_dark(cameras, watch, index):
 LOG = logging.getLogger('whiteboard')
 
 
-def board_passes(is_board, fill, min_fill):
-    """A camera passes only with a yes answer and, if the check is on, a fill at or above the setting."""
-    if not is_board:
-        return False
-    return min_fill == 0 or (fill is not None and fill >= min_fill)
+def judge(describer, fields, min_fill, photo):
+    """Describe one frame and apply the criteria (BL-034). Returns (passes, body, label, parsed).
+    The watcher's verdict counts; the agent's conclusion is only logged next to the measured values.
+    Raises DescribeError."""
+    raw = describer.describe(photo, fields)
+    try:
+        parsed = answer.parse(raw)
+    except ValueError as err:
+        raise DescribeError(str(err))
+    passes, label = answer.verdict(parsed, min_fill)
+    LOG.info('criteria: visible %s, fill %s (check %s), camera %s by the agent, %s by the watcher'
+             % ('yes' if parsed.visible else 'no', parsed.fill, min_fill or 'off',
+                'yes' if parsed.camera else 'no' if parsed.camera is not None else 'missing',
+                'yes' if passes else 'no'))
+    return passes, parsed.body, label, parsed
 
 
 def check_frame(describer, fields, min_fill, photo):
-    """Describe one frame and apply the board check. Returns (passes, body, label). Raises DescribeError."""
-    raw = describer.describe(photo, fields)
-    is_board, body = split_answer(raw)
-    fill, body = split_fill(body)
-    if not board_passes(is_board, fill, min_fill):
-        if not is_board:
-            label = 'not a whiteboard'
-        elif fill is None:
-            label = 'board fill missing'
-        else:
-            label = 'board fill %s below %d' % (fill, min_fill)
-        return False, body, label
-    if not body:
-        return False, body, 'describe: empty description'
-    return True, body, 'ok'
+    """(passes, body, label) for the selection check. Raises DescribeError."""
+    passes, body, label, _ = judge(describer, fields, min_fill, photo)
+    return passes, body, label
 
 
 def keep_rejected(settings, number, rejected):
@@ -367,10 +336,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         info = dict(getattr(cameras, 'last', {}))
         started = watch.clock()
         described = True
+        min_fill = settings.get('min_board_fill_percent', 0)
         try:
-            raw = describer.describe(photo, fields)
-            is_board, body = split_answer(raw)
-            fill, body = split_fill(body)
+            passes, body, label, _ = judge(describer, fields, min_fill, photo)
         except DescribeError as err:
             describe_s = watch.clock() - started
             watch.camera_try(index, 'describe error: %s' % err, info.get('photo_s'),
@@ -378,21 +346,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             reasons.append('camera %d: describe: %s' % (index, err))
             continue
         describe_s = watch.clock() - started
-        min_fill = settings.get('min_board_fill_percent', 0)
-        LOG.info('request %s camera %d raw answer: %r; fill %s; check %s'
-                 % (number, index, raw, fill, min_fill or 'off'))
-        if not board_passes(is_board, fill, min_fill):
-            label = 'not a whiteboard' if not is_board else (
-                'board fill %s below %d' % (fill, min_fill) if fill is not None
-                else 'board fill missing')
+        if not passes:
             watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'), describe_s)
             reasons.append('camera %d: %s' % (index, label))
-            rejected.append((index, photo))
-            continue
-        if not body:
-            watch.camera_try(index, 'describe: empty description', info.get('photo_s'),
-                             info.get('brightness'), describe_s)
-            reasons.append('camera %d: describe: empty description' % index)
             rejected.append((index, photo))
             continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)

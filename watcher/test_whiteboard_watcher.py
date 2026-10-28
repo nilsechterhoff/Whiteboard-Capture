@@ -10,7 +10,7 @@ from stopwatch import MARKER, Watch
 
 NOW = 1000000
 VALID = 'request: "0003"\n'
-YES = 'whiteboard: yes\n## Text\nHELLO'
+YES = 'whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\n\n## Text\nHELLO'
 MODELS = {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'}
 SETTINGS = {'models': MODELS, 'default_model': 'haiku'}
 
@@ -191,47 +191,6 @@ class ParseRequestTests(unittest.TestCase):
                 self.parse(VALID + bad)
 
 
-class SplitFillTests(unittest.TestCase):
-
-    def test_fill_line_is_taken_out_of_the_body(self):
-        self.assertEqual(ww.split_fill('fill: 85\n## Text\nHELLO'), (85, '## Text\nHELLO'))
-
-    def test_percent_sign_and_case_tolerated(self):
-        self.assertEqual(ww.split_fill('Fill: 90%\nbody')[0], 90)
-
-    def test_missing_or_unparsable_is_none(self):
-        self.assertEqual(ww.split_fill('body only')[0], None)
-        self.assertEqual(ww.split_fill('fill: lots\nbody')[0], None)
-        self.assertEqual(ww.split_fill('fill: 150\nbody')[0], None)
-
-    def test_board_passes_rule(self):
-        self.assertTrue(ww.board_passes(True, 85, 80))
-        self.assertFalse(ww.board_passes(True, 79, 80))
-        self.assertFalse(ww.board_passes(True, None, 80))
-        self.assertTrue(ww.board_passes(True, None, 0))
-        self.assertFalse(ww.board_passes(False, 99, 0))
-
-
-class SplitAnswerTests(unittest.TestCase):
-
-    def test_yes_strips_the_line(self):
-        self.assertEqual(ww.split_answer('whiteboard: yes\nbody\n'), (True, 'body'))
-
-    def test_no(self):
-        self.assertEqual(ww.split_answer('whiteboard: no'), (False, ''))
-
-    def test_case_and_spaces_tolerated(self):
-        self.assertEqual(ww.split_answer('  Whiteboard: YES \nx')[0], True)
-
-    def test_missing_line_is_an_error(self):
-        with self.assertRaises(ww.DescribeError):
-            ww.split_answer('This is a whiteboard with notes.')
-
-    def test_empty_answer_is_an_error(self):
-        with self.assertRaises(ww.DescribeError):
-            ww.split_answer('   \n')
-
-
 class CameraOrderTests(unittest.TestCase):
 
     def test_remembered_first_then_listing_order(self):
@@ -290,7 +249,7 @@ class ProcessTests(unittest.TestCase):
 
     def test_remembered_wrong_then_second_camera_works(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(answers={b'photo-1': 'whiteboard: no\nroom'})
+        describer = FakeDescriber(answers={b'photo-1': 'whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no\nroom'})
         handled, cameras, _, memory = self.run_one(
             store, FakeCameras([0, 1]), describer, FakeMemory(1))
         self.assertEqual(handled, ['0003'])
@@ -310,7 +269,7 @@ class ProcessTests(unittest.TestCase):
     def test_all_cameras_fail_writes_one_error_with_a_line_per_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
         cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)', 1: 'no frame'})
-        self.run_one(store, cameras, FakeDescriber(default='whiteboard: no\nroom'))
+        self.run_one(store, cameras, FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no\nroom'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
         desc = self.description(store)
         self.assertTrue(desc.startswith('status: error\n'))
@@ -320,7 +279,7 @@ class ProcessTests(unittest.TestCase):
 
     def test_not_a_whiteboard_on_every_camera_is_an_error_without_image(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_one(store, FakeCameras([0, 1]), FakeDescriber(default='whiteboard: no'))
+        self.run_one(store, FakeCameras([0, 1]), FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
         self.assertIn('reason: camera 0: not a whiteboard', self.description(store))
 
@@ -329,7 +288,7 @@ class ProcessTests(unittest.TestCase):
         self.run_one(store, FakeCameras([0]), FakeDescriber(default='a whiteboard with text'))
         desc = self.description(store)
         self.assertIn('status: error', desc)
-        self.assertIn('describe: answer did not start with a whiteboard line', desc)
+        self.assertIn('describe: answer has no whiteboard_visible line', desc)
 
     def test_describe_error_counts_as_failure_for_that_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -607,7 +566,7 @@ class OrderAndStatusTests(unittest.TestCase):
 
     def test_describe_failure_status_code(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_pass(store, FakeCameras([0]), FakeDescriber(default='whiteboard: no'))
+        self.run_pass(store, FakeCameras([0]), FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
         self.assertIn('code: DESCRIBE_FAILED', self.status(store))
 
     def test_crash_after_describe_is_unknown_error_and_never_described_twice(self):
@@ -726,8 +685,8 @@ class BoardFillFlowTests(ProcessTests):
 
     def test_low_fill_is_refused_and_next_camera_used(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(answers={b'photo-0': 'whiteboard: yes\nfill: 30\nroom'},
-                                  default='whiteboard: yes\nfill: 90\n## Text\nHELLO')
+        describer = FakeDescriber(answers={b'photo-0': 'whiteboard_visible: yes\nboard_fill_percent: 30\nis_board_camera: yes\n\nroom'},
+                                  default='whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\n## Text\nHELLO')
         settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
         _, cameras, _, _ = self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
         self.assertEqual(cameras.captures, [0, 1])
@@ -737,16 +696,16 @@ class BoardFillFlowTests(ProcessTests):
 
     def test_missing_fill_with_check_on_fails_and_is_logged(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='whiteboard: yes\nno fill line here')
+        describer = FakeDescriber(default='whiteboard_visible: yes\nis_board_camera: yes\n\nno fill line here')
         settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
         with self.assertLogs('whiteboard', level='INFO') as logs:
             self.run_one(store, FakeCameras([0]), describer, settings=settings)
         self.assertIn('board fill missing', self.description(store))
-        self.assertTrue(any('raw answer' in line and 'no fill line here' in line for line in logs.output))
+        self.assertTrue(any('criteria: visible yes, fill None' in line for line in logs.output))
 
     def test_check_off_ignores_fill(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='whiteboard: yes\nfill: 5\nHELLO')
+        describer = FakeDescriber(default='whiteboard_visible: yes\nboard_fill_percent: 5\nis_board_camera: yes\n\nHELLO')
         self.run_one(store, FakeCameras([0]), describer)
         self.assertIn('status: ok', self.description(store))
 
@@ -760,7 +719,7 @@ class FailedPhotoFlowTests(ProcessTests):
         folder = os.path.join(testroot.mkdtemp(), 'failed-photos')
         try:
             store = FakeStore({'request-0003.yaml': VALID})
-            describer = FakeDescriber(default='whiteboard: no')
+            describer = FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
             settings = dict(SETTINGS, failed_photos_dir=folder, failed_photos_keep=5)
             self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
             self.assertEqual(sorted(os.listdir(folder)), ['request-0003-cam00.jpg', 'request-0003-cam01.jpg'])

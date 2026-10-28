@@ -74,11 +74,17 @@ class DescribeTests(unittest.TestCase):
         self.assertEqual(fake.cmd[fake.cmd.index('--allowedTools') + 1], 'Read')
         self.assertEqual(fake.cwd, self.folder)
 
-    def test_prompt_asks_for_the_whiteboard_line_first(self):
+    def test_prompt_asks_for_the_criteria_first_then_the_conclusion(self):
         prompt = desc.build_prompt({'request': '0003', 'marker_color': 'red'})
-        self.assertIn("exactly 'whiteboard: yes'", prompt)
-        self.assertIn("exactly 'whiteboard: no'", prompt)
+        self.assertIn("'whiteboard_visible: yes'", prompt)
+        self.assertIn("'whiteboard_visible: no'", prompt)
+        self.assertIn("'board_fill_percent: NN'", prompt)
+        self.assertIn("'is_board_camera: yes'", prompt)
         self.assertIn('marker_color=red', prompt)
+
+    def test_prompt_states_the_required_fill_only_when_the_check_is_on(self):
+        self.assertIn('(required: none)', desc.build_prompt({'request': '0003'}))
+        self.assertIn('(required: at least 80)', desc.build_prompt({'request': '0003'}, min_fill=80))
 
     def test_api_key_in_environment_is_refused(self):
         fake = FakeClaude()
