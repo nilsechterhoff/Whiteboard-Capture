@@ -9,6 +9,7 @@ import logging
 import re
 
 import failed_photos
+import picture
 import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
@@ -311,6 +312,13 @@ def keep_rejected(settings, number, rejected):
         LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
 
 
+def ok_text(number, fields, body, photo, watch):
+    """The description for a good photo: the picture facts line on top, then the body and the timing block."""
+    facts, ms = picture.line(photo)
+    watch.picture(ms)
+    return facts + '\n' + render_ok(number, fields, body) + '\n' + watch.block()
+
+
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
     """Photo and describe for one request. The result is kept locally before any upload."""
     number = REQUEST_NAME.match(name).group(1)
@@ -339,7 +347,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             outcome = None
         if outcome is not None:
             if outcome.ok:
-                text = render_ok(number, fields, outcome.body) + '\n' + watch.block()
+                text = ok_text(number, fields, outcome.body, outcome.photo, watch)
                 results.save(number, outcome.photo, text)  # local copy first: a restart never takes a new photo
                 memory.remember(outcome.index)
                 deliver(store, watch, results, number, outcome.photo, text)
@@ -388,7 +396,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             rejected.append((index, photo))
             continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
-        text = render_ok(number, fields, body) + '\n' + watch.block()
+        text = ok_text(number, fields, body, photo, watch)
         results.save(number, photo, text)  # local copy first: a restart never takes a new photo
         memory.remember(index)
         deliver(store, watch, results, number, photo, text)

@@ -274,7 +274,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(len(describer.calls), 1)
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
         desc = self.description(store)
-        self.assertTrue(desc.startswith('status: ok\n'))
+        self.assertEqual(desc.split('\n')[1], 'status: ok')
         self.assertNotIn('whiteboard:', desc)
         self.assertIn('HELLO', desc)
         self.assertEqual(memory.remembered, [1])

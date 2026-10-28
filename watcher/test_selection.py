@@ -330,7 +330,7 @@ class RequestFlowTests(unittest.TestCase):
     def test_request_uses_the_board_camera_and_its_frame(self):
         h = Harness(self.folder, plan={1: ['pass']})
         store, describer, memory = self.run_request(h)
-        self.assertTrue(store.text('/Descriptions/description-0003.md').startswith('status: ok\n'))
+        self.assertEqual(store.text('/Descriptions/description-0003.md').split('\n')[1], 'status: ok')
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'stream-frame')
         self.assertEqual(memory.remembered, [1])
         self.assertEqual(h.lean.captures, [])

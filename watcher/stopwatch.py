@@ -38,6 +38,10 @@ class Watch(object):
         self.camera_list_s = None
         self.tries = []          # (index, result, photo_s, brightness, describe_s)
         self.image_upload_s = None
+        self.picture_ms = None
+
+    def picture(self, ms):
+        self.picture_ms = ms
 
     def camera_list(self, seconds):
         self.camera_list_s = seconds
@@ -58,6 +62,8 @@ class Watch(object):
         """Timing block for the end of the description (without the final description upload)."""
         lines = [MARKER, 'machine: %s' % self.machine, 'model: %s' % self.model,
                  'detect: %s' % secs(self.detect_s), 'camera list: %s' % secs(self.camera_list_s)]
+        if self.picture_ms is not None:
+            lines.append('picture facts: %.2f ms' % self.picture_ms)
         for index, result, photo_s, brightness, describe_s in self.tries:
             extra = ['photo %s' % secs(photo_s)]
             if brightness is not None:
