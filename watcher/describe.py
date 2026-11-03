@@ -1,7 +1,7 @@
 """Describe step: headless Claude Code (claude -p) reads one photo and answers.
 
-The first line of the answer is 'whiteboard: yes' or 'whiteboard: no' (checked by
-whiteboard_watcher.split_answer). Only Read is allowed. Refuses to run if
+The answer starts with the measured criteria (answer.py), then the description if the agent
+concludes it is the board camera. Only Read is allowed. Refuses to run if
 ANTHROPIC_API_KEY is set, so nothing is billed to an API key. Standard library only.
 """
 
@@ -23,40 +23,55 @@ TIMEOUT = 120         # hard limit per run, seconds
 PHOTO_NAME = 'describe-photo.jpg'
 
 
-def build_prompt(fields, photo_ref=None):
+def build_prompt(fields, photo_ref=None, min_fill=0, check_only=False):
     """photo_ref None: the lean call reads PHOTO_NAME in the work folder; a session passes the
-    attached image instead."""
+    attached image instead. min_fill: the board fill the watcher requires (0 = no requirement).
+    check_only: the criteria and the conclusion, no challenges and no description (headstart, snapshot)."""
     others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k != 'request')
     start = ("Read the image file %s in this folder. " % PHOTO_NAME if photo_ref is None
              else 'Look at the attached image. ')
-    return (
-        start +
-        "The first line of your answer must be exactly 'whiteboard: yes' if the image shows "
-        "a whiteboard with handwriting, otherwise exactly 'whiteboard: no'. "
-        "If the answer is no, stop after that line. "
-        "If yes, the second line must be 'fill: NN', where NN is the percentage of the whole frame "
-        "covered by the real whiteboard surface. Count only the board itself: not reflections in "
-        "mirrors, screens, posters, windows or walls. Give your best estimate as a whole number. "
-        "If yes, then describe only, do not interpret: "
-        "(1) the text, grouped by region; "
-        "(2) the shapes, arrows and what connects to what; "
-        "(3) a short summary. "
-        "Request fields: %s. Honour marker_color and region fields if given. "
-        "Plain text, no tool use other than reading the image."
-    ) % (others or 'none')
+    fill_rule = 'at least %d' % min_fill if min_fill else 'none'
+    criteria = (
+        "Answer with one line per criterion, in this order, nothing before them. "
+        "'whiteboard_visible: yes' if the image shows a whiteboard with handwriting, otherwise "
+        "'whiteboard_visible: no' (required: yes). "
+        "'board_fill_percent: NN', where NN is a whole number from 0 to 100: the percentage of the "
+        "whole frame covered by the real whiteboard surface. Count only the board itself: not "
+        "reflections in mirrors, screens, posters, windows or walls. Write 0 if no board is visible "
+        "(required: %s). ") % fill_rule
+    if check_only:
+        ending = (
+            "'is_board_camera: yes' if every required criterion is met, otherwise 'is_board_camera: no'. "
+            "Check only: do not describe the board and do not list challenges. Write nothing after the "
+            "is_board_camera line. ")
+    else:
+        ending = (
+            "'challenges_if_any': list only real obstacles that limited the picture or the description "
+            "(for example glare, a hand in the frame, text cut off at an edge): one short line each, as "
+            "'- what; where; minor or critical'. If there are none, write exactly 'challenges_if_any: none'. "
+            "'is_board_camera: yes' if every required criterion is met, otherwise 'is_board_camera: no'. "
+            "If is_board_camera is no, stop after that line. "
+            "If yes, leave one blank line, then describe only, do not interpret: "
+            "(1) the text, grouped by region; "
+            "(2) the shapes, arrows and what connects to what; "
+            "(3) a short summary. ")
+    return (start + criteria + ending +
+            "Request fields: %s. Honour marker_color and region fields if given. "
+            "Plain text, no tool use other than reading the image.") % (others or 'none')
 
 
 class Describer(object):
 
-    def __init__(self, folder, models, timeout=TIMEOUT, run=subprocess.run, environ=None):
+    def __init__(self, folder, models, timeout=TIMEOUT, run=subprocess.run, environ=None, min_fill=0):
         """`models` maps the short names from the config file to model IDs."""
         self.folder = folder
         self.models = models
         self.timeout = timeout
         self.run = run
         self.environ = dict(os.environ if environ is None else environ)
+        self.min_fill = min_fill
 
-    def describe(self, photo, fields):
+    def describe(self, photo, fields, check_only=False):
         if self.environ.get('ANTHROPIC_API_KEY'):
             raise DescribeError('ANTHROPIC_API_KEY is set; refusing to bill an API key')
         path = os.path.join(self.folder, PHOTO_NAME)
@@ -65,7 +80,7 @@ class Describer(object):
         env = dict(self.environ)
         env.pop('ANTHROPIC_API_KEY', None)
         model = self.models[fields['model']]
-        cmd = [CLAUDE, '-p', build_prompt(fields), '--model', model,
+        cmd = [CLAUDE, '-p', build_prompt(fields, min_fill=self.min_fill, check_only=check_only), '--model', model,
                '--allowedTools', 'Read', '--add-dir', self.folder,
                '--output-format', 'json']
         try:
@@ -99,7 +114,7 @@ class SessionDescriber(object):
     """
 
     def __init__(self, folder, models, lean, restart_after=20, timeout=TIMEOUT,
-                 popen=subprocess.Popen, read_event=None, environ=None):
+                 popen=subprocess.Popen, read_event=None, environ=None, min_fill=0):
         self.folder = folder
         self.models = models
         self.lean = lean
@@ -108,6 +123,7 @@ class SessionDescriber(object):
         self.popen = popen
         self.read_event = read_event or _read_event
         self.environ = dict(os.environ if environ is None else environ)
+        self.min_fill = min_fill
         self.proc = None
         self.model = None
         self.count = 0
@@ -137,11 +153,12 @@ class SessionDescriber(object):
             self.proc = None
             self.model = None
 
-    def _ask(self, photo, fields):
+    def _ask(self, photo, fields, check_only=False):
         message = {'type': 'user', 'message': {'role': 'user', 'content': [
             {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg',
                                          'data': base64.b64encode(photo).decode('ascii')}},
-            {'type': 'text', 'text': build_prompt(fields, photo_ref='attached')}]}}
+            {'type': 'text', 'text': build_prompt(fields, photo_ref='attached', min_fill=self.min_fill,
+                                                  check_only=check_only)}]}}
         self.proc.stdin.write((json.dumps(message) + '\n').encode('utf-8'))
         self.proc.stdin.flush()
         deadline = time.time() + self.timeout
@@ -157,7 +174,19 @@ class SessionDescriber(object):
                     raise DescribeError('session reported an error')
                 return event.get('result', '')
 
-    def describe(self, photo, fields):
+    def warm(self, model):
+        """Headstart (BL-037): start the session now, without a photo. A failure is logged; the next
+        describe starts the session again."""
+        try:
+            self._env()
+            if self.proc is None or self.model != model or self.proc.poll() is not None:
+                LOG.info('session: started by headstart (model %s)' % model)
+                self._start(model)
+        except (DescribeError, OSError) as err:
+            LOG.info('session: headstart could not start (%s)' % err)
+            self._stop()
+
+    def describe(self, photo, fields, check_only=False):
         self._env()  # refuses if the key is set
         try:
             if (self.proc is None or self.model != fields['model'] or self.count >= self.restart_after
@@ -166,13 +195,13 @@ class SessionDescriber(object):
                 self._start(fields['model'])
             else:
                 LOG.info('session: reused (request %d in this session)' % (self.count + 1))
-            text = self._ask(photo, fields)
+            text = self._ask(photo, fields, check_only)
             self.count += 1
             return text
         except (DescribeError, OSError, ValueError) as err:
             LOG.info('session: check failed (%s); lean describe once' % err)
             self._stop()
-            return self.lean.describe(photo, fields)
+            return self.lean.describe(photo, fields, check_only=check_only)
 
 
 def _read_event(proc, timeout):

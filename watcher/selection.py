@@ -86,16 +86,16 @@ class Outcome(object):
 
 class ParallelCameras(object):
 
-    def __init__(self, folder, lean, rotation_degrees=0, dark_below=cam.DARK_BELOW, idle_timeout=600,
-                 reset_events=None, start_offset=0.1, frame_delay=2.0, retry_pause=1.0, retries=2,
-                 jpeg_quality=cam.JPEG_QUALITY, popen=subprocess.Popen, clock=time.time, sleep=time.sleep,
+    def __init__(self, folder, lean, rotation_degrees, dark_below, idle_timeout,
+                 reset_events, start_offset, frame_delay, retry_pause, retries, jpeg_quality,
+                 popen=subprocess.Popen, clock=time.time, sleep=time.sleep,
                  run=subprocess.run):
         self.folder = folder
         self.lean = lean                      # the lean path: a cam.Cameras object (list, capture)
         self.rotation_degrees = rotation_degrees
         self.dark_below = dark_below
         self.idle_timeout = idle_timeout
-        self.reset_events = reset_events or {'request': 'yes'}
+        self.reset_events = reset_events
         self.start_offset = start_offset
         self.frame_delay = frame_delay
         self.retry_pause = retry_pause

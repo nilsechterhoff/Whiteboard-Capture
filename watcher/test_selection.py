@@ -119,7 +119,7 @@ class Harness(object):
         self.checks = []        # (index, clock time) of every board check
         self.watch = Watch(machine='test-mac', clock=self.clock)
         self.cameras = selection.ParallelCameras(
-            folder, self.lean, 0, 20, idle_timeout, None, 0.1, 2.0, 1.0, retries,
+            folder, self.lean, 0, 20, idle_timeout, {'request': 'yes'}, 0.1, 2.0, 1.0, retries, 2,
             popen=self.popen, clock=self.clock, sleep=self.clock.sleep, run=self.run)
 
     def check(self, index, photo):
@@ -330,7 +330,7 @@ class RequestFlowTests(unittest.TestCase):
     def test_request_uses_the_board_camera_and_its_frame(self):
         h = Harness(self.folder, plan={1: ['pass']})
         store, describer, memory = self.run_request(h)
-        self.assertTrue(store.text('/Descriptions/description-0003.md').startswith('status: ok\n'))
+        self.assertEqual(store.text('/Descriptions/description-0003.md').split('\n')[1], 'status: ok')
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'stream-frame')
         self.assertEqual(memory.remembered, [1])
         self.assertEqual(h.lean.captures, [])
@@ -343,7 +343,7 @@ class RequestFlowTests(unittest.TestCase):
 
     def test_no_board_frame_writes_an_error_and_keeps_the_rejected_photos(self):
         h = Harness(self.folder, retries=2)
-        store, describer, memory = self.run_request(h, answer='whiteboard: no')
+        store, describer, memory = self.run_request(h, answer='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
         self.assertEqual(len(describer.calls), 6)       # 2 cameras, 3 selections
         self.assertTrue(store.text('/Descriptions/description-0003.md').startswith('status: error\n'))
         self.assertNotIn('/Images/image-0003.jpg', store.files)

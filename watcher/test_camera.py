@@ -110,27 +110,27 @@ class CaptureTests(unittest.TestCase):
 
     def test_capture_returns_last_frame_and_cleans_up(self):
         fake = FakeFfmpeg(brightness={'frame-1.jpg': 120.0})
-        data = cam.capture(1, self.folder, run=fake)
+        data = cam.capture(1, self.folder, 0, 20, 2, run=fake)
         self.assertEqual(data, b'jpeg-1')
         self.assertEqual(os.listdir(self.folder), [])
 
     def test_command_uses_index_and_rotation(self):
         fake = FakeFfmpeg(brightness={'frame-1.jpg': 120.0})
-        cam.capture(1, self.folder, rotation_degrees=180, run=fake)
+        cam.capture(1, self.folder, 180, 20, 2, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertIn('1:none', capture_cmd)
         self.assertIn('hflip,vflip', capture_cmd)
 
     def test_rotation_off_has_no_flip(self):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 120.0})
-        cam.capture(0, self.folder, rotation_degrees=0, run=fake)
+        cam.capture(0, self.folder, 0, 20, 2, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertNotIn('-vf', capture_cmd)
         self.assertNotIn('hflip', capture_cmd)
 
     def test_first_frame_is_the_photo_without_warmup(self):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 90.0})
-        self.assertEqual(cam.capture(0, self.folder, run=fake), b'jpeg-1')
+        self.assertEqual(cam.capture(0, self.folder, 0, 20, 2, run=fake), b'jpeg-1')
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertEqual(capture_cmd[capture_cmd.index('-frames:v') + 1], '1')
         self.assertNotIn('fps', ' '.join(capture_cmd))
@@ -139,33 +139,33 @@ class CaptureTests(unittest.TestCase):
     def test_dark_frame_is_rejected(self):
         fake = FakeFfmpeg(brightness={'frame-2.jpg': 1.4})
         with self.assertRaises(DarkFrameError) as ctx:
-            cam.capture(2, self.folder, run=fake)
+            cam.capture(2, self.folder, 0, 20, 2, run=fake)
         self.assertIn('dark, closed lid', str(ctx.exception))
         self.assertEqual(os.listdir(self.folder), [])
 
     def test_threshold_is_configurable(self):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 30.0})
         with self.assertRaises(CameraError):
-            cam.capture(0, self.folder, dark_below=40, run=fake)
+            cam.capture(0, self.folder, 0, 40, 2, run=fake)
 
     def test_no_frame_written_is_an_error(self):
         with self.assertRaises(CameraError) as ctx:
-            cam.capture(0, self.folder, run=FakeFfmpeg(frames=False, returncode=1,
+            cam.capture(0, self.folder, 0, 20, 2, run=FakeFfmpeg(frames=False, returncode=1,
                                                         stderr=b'Video device not found\n'))
         self.assertIn('Video device not found', str(ctx.exception))
 
     def test_capture_timeout_is_an_error(self):
         with self.assertRaises(CameraError) as ctx:
-            cam.capture(0, self.folder, run=FakeFfmpeg(timeout=True))
+            cam.capture(0, self.folder, 0, 20, 2, run=FakeFfmpeg(timeout=True))
         self.assertIn('no photo within', str(ctx.exception))
 
     def test_brightness_without_value_is_an_error(self):
         with self.assertRaises(CameraError):
-            cam.capture(0, self.folder, run=FakeFfmpeg(brightness_text='nothing here'))
+            cam.capture(0, self.folder, 0, 20, 2, run=FakeFfmpeg(brightness_text='nothing here'))
 
     def test_cameras_class_passes_settings_through(self):
         fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})
-        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', rotation_degrees=0, dark_below=10, run=fake)
+        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', 0, 10, 2, run=fake)
         self.assertEqual(cameras.capture(4), b'jpeg-1')
         self.assertEqual(cameras.list(), [(0, 'Logitech Webcam C930e'),
                                           (1, 'Logitech Webcam C930e')])
@@ -211,24 +211,24 @@ class JpegQualityTests(unittest.TestCase):
         return cmd[cmd.index('-q:v') + 1]
 
     def test_stream_command_default_is_quality_2_before_the_output(self):
-        cmd, out = cam.stream_command(0, self.folder, 0)
+        cmd, out = cam.stream_command(0, self.folder, 0, 2)
         self.assertEqual(self.quality_of(cmd), '2')
         self.assertLess(cmd.index('-q:v'), cmd.index('-y'))
         self.assertEqual(cmd[-1], out)
 
     def test_stream_command_uses_the_configured_quality(self):
-        cmd, _ = cam.stream_command(0, self.folder, 0, jpeg_quality=10)
+        cmd, _ = cam.stream_command(0, self.folder, 0, 10)
         self.assertEqual(self.quality_of(cmd), '10')
 
     def test_single_capture_uses_the_quality_too(self):
         fake = FakeFfmpeg(brightness={'frame-0.jpg': 90.0})
-        cam.capture(0, self.folder, run=fake)
+        cam.capture(0, self.folder, 0, 20, 2, run=fake)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertEqual(self.quality_of(capture_cmd), '2')
 
     def test_cameras_class_passes_the_configured_quality(self):
         fake = FakeFfmpeg(brightness={'frame-4.jpg': 90.0})
-        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', run=fake, jpeg_quality=7)
+        cameras = cam.Cameras(self.folder, 'Logitech Webcam C930e', 0, 20, 7, run=fake)
         cameras.capture(4)
         capture_cmd = [c for c in fake.commands if '-frames:v' in c][0]
         self.assertEqual(self.quality_of(capture_cmd), '7')

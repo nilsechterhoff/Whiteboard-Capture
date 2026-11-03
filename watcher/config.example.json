@@ -2,27 +2,93 @@
   "app_key": "<from the Dropbox app console; never commit>",
   "app_secret": "<from the Dropbox app console; never commit>",
   "refresh_token": "<written by setup_dropbox.py; never commit>",
-  "camera_name": "<exact device name from the ffmpeg device list, e.g. Logitech Webcam C930e>",
-  "rotation_degrees": 0,
-  "dark_below": 20,
-  "default_model": "haiku",
   "models": {
     "haiku": "claude-haiku-5-5",
     "sonnet": "claude-sonnet-5-5",
     "opus": "claude-opus-5-5"
   },
-  "min_board_fill_percent": 50,
-  "start_offset_seconds": 0.1,
-  "selection_frame_delay_seconds": 2,
-  "retry_pause_seconds": 1,
-  "capture_retries": 2,
-  "jpeg_quality": 2,
-  "agile_idle_timeout_seconds": 600,
-  "agile_timer_reset_events": {
-    "request": "yes"
+  "camera_name": {
+    "value": "",
+    "default": "",
+    "allowed": "any"
   },
-  "agile_session": "no",
-  "agile_session_restart_after_requests": 20,
-  "failed_photos_keep": 5,
-  "failed_photos_folder": "failed-photos"
+  "default_model": {
+    "value": "haiku",
+    "default": "haiku",
+    "allowed": "text"
+  },
+  "rotation_degrees": {
+    "value": 0,
+    "default": 0,
+    "allowed": "0|90|180|270"
+  },
+  "dark_below": {
+    "value": 20,
+    "default": 20,
+    "allowed": "int>=0"
+  },
+  "min_board_fill_percent": {
+    "value": 50,
+    "default": 50,
+    "allowed": "0-100"
+  },
+  "jpeg_quality": {
+    "value": 4,
+    "default": 4,
+    "allowed": "2-31"
+  },
+  "start_offset_seconds": {
+    "value": 0.1,
+    "default": 0.1,
+    "allowed": "number>=0"
+  },
+  "selection_frame_delay_seconds": {
+    "value": 2,
+    "default": 2,
+    "allowed": "number>=0"
+  },
+  "retry_pause_seconds": {
+    "value": 1,
+    "default": 1,
+    "allowed": "number>=0"
+  },
+  "capture_retries": {
+    "value": 2,
+    "default": 2,
+    "allowed": "int>=0"
+  },
+  "agile_idle_timeout_seconds": {
+    "value": 600,
+    "default": 600,
+    "allowed": "int>=1"
+  },
+  "agile_timer_reset_events": {
+    "value": {
+      "request": "yes"
+    },
+    "default": {
+      "request": "yes"
+    },
+    "allowed": "dict:yes|no"
+  },
+  "agile_session": {
+    "value": "no",
+    "default": "no",
+    "allowed": "yes|no"
+  },
+  "agile_session_restart_after_requests": {
+    "value": 20,
+    "default": 20,
+    "allowed": "int>=1"
+  },
+  "failed_photos_keep": {
+    "value": 5,
+    "default": 5,
+    "allowed": "int>=0"
+  },
+  "failed_photos_folder": {
+    "value": "failed-photos",
+    "default": "failed-photos",
+    "allowed": "text"
+  }
 }

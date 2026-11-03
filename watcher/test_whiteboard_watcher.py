@@ -3,6 +3,7 @@
 Run: cd watcher && python3 -m unittest -v test_whiteboard_watcher
 """
 
+import time
 import unittest
 
 import whiteboard_watcher as ww
@@ -10,7 +11,7 @@ from stopwatch import MARKER, Watch
 
 NOW = 1000000
 VALID = 'request: "0003"\n'
-YES = 'whiteboard: yes\n## Text\nHELLO'
+YES = 'whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\n\n## Text\nHELLO'
 MODELS = {'haiku': 'claude-haiku-5-5', 'sonnet': 'claude-sonnet-5-5', 'opus': 'claude-opus-5-5'}
 SETTINGS = {'models': MODELS, 'default_model': 'haiku'}
 
@@ -97,10 +98,12 @@ class FakeDescriber(object):
         self.default = default
         self.calls = []    # photos
         self.fields = []   # fields per call
+        self.check_only = []  # the check_only flag per call
 
-    def describe(self, photo, fields):
+    def describe(self, photo, fields, check_only=False):
         self.calls.append(photo)
         self.fields.append(dict(fields))
+        self.check_only.append(check_only)
         answer = self.answers.get(photo, self.default)
         if answer.startswith('ERR:'):
             raise ww.DescribeError(answer[4:])
@@ -140,22 +143,214 @@ class FakeMemory(object):
         self.last = index
 
 
+class SelectingCameras(FakeCameras):
+    """Selection stand-in: the first listed camera whose check passes is the board camera."""
+
+    def select_board(self, indices, check, watch, last_board):
+        out = _Outcome()
+        for index in indices:
+            photo = b'photo-%d' % index
+            passes, body, label = check(index, photo)
+            if passes:
+                out.ok, out.index, out.photo, out.body = True, index, photo, body
+                return out
+            out.reasons.append('camera %d: %s' % (index, label))
+        return out
+
+
+class _Outcome(object):
+    def __init__(self):
+        self.ok, self.index, self.photo, self.body = False, None, None, ''
+        self.reasons = []
+        self.rejected = []
+
+
+class SnapshotNameTests(unittest.TestCase):
+
+    def name(self, requested_by):
+        return ww.snapshot_name('0007', requested_by, time.mktime((2026, 10, 28, 12, 0, 0, 0, 0, -1)))
+
+    def test_name_is_the_first_six_letters_with_capital_and_the_date(self):
+        self.assertEqual(self.name('nils'), 'WBC_SNAP_0007_Nils_20261028.jpg')
+        self.assertEqual(self.name('Christian'), 'WBC_SNAP_0007_Christ_20261028.jpg')
+
+    def test_only_letters_and_digits_count(self):
+        self.assertEqual(self.name('mary ann'), 'WBC_SNAP_0007_Maryan_20261028.jpg')
+
+    def test_noname_when_nothing_is_left(self):
+        self.assertEqual(self.name('Noname'), 'WBC_SNAP_0007_Noname_20261028.jpg')
+        self.assertEqual(self.name('!!'), 'WBC_SNAP_0007_Noname_20261028.jpg')
+
+
+class SnapshotFlowTests(unittest.TestCase):
+
+    def run_snapshot(self, request, cameras=None, describer=None):
+        store = FakeStore({'request-0003.yaml': VALID + request})
+        describer = describer or FakeDescriber()
+        results = FakeResults()
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, cameras or SelectingCameras([0]), describer, FakeMemory(None), watch,
+                           results, NOW, SETTINGS)
+        return store, describer, results
+
+    def snapshot_path(self, name):
+        return '/Snapshots/WBC_SNAP_0003_%s_%s.jpg' % (name, time.strftime('%Y%m%d', time.localtime(NOW)))
+
+    def test_photo_is_saved_to_snapshots_and_the_description_is_saved_plus_name(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\nrequested_by: Nils\n')
+        path = self.snapshot_path('Nils')
+        self.assertEqual(store.files[path], b'photo-0')
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'saved\n%s\n' % path.rsplit('/', 1)[1])
+        self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
+        self.assertNotIn('/Images/image-0003.jpg', store.files)
+
+    def test_the_image_agent_is_only_asked_for_the_check_never_the_description(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\n')
+        self.assertTrue(describer.check_only)
+        self.assertTrue(all(describer.check_only))
+
+    def test_no_description_text_is_written_or_sent_to_the_picture_file(self):
+        store, describer, results = self.run_snapshot('request_type: snapshot\n')
+        self.assertNotIn('HELLO', store.text('/Descriptions/description-0003.md'))
+        self.assertIn(self.snapshot_path('Noname'), store.files)
+
+    def test_no_board_camera_is_an_error_and_nothing_is_saved(self):
+        store, describer, results = self.run_snapshot(
+            'request_type: snapshot\n', cameras=SelectingCameras([0]),
+            describer=FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
+        self.assertFalse([p for p in store.files if p.startswith('/Snapshots/')])
+        self.assertIn('code: CAMERA_FAILED', store.text('/status.md'))
+
+    def test_snapshot_upload_failure_is_an_image_error(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        store.fail_upload_on = '/Snapshots/'
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, SelectingCameras([0]), FakeDescriber(), FakeMemory(None), watch,
+                           FakeResults(), NOW, SETTINGS)
+        self.assertIn('code: IMAGE_UPLOAD_FAILED', store.text('/status.md'))
+
+
+class CrashRecoveryTests(unittest.TestCase):
+    """Item 4: a snapshot's photo only ever goes to Snapshots/; headstart uploads no image."""
+
+    SNAP = 'saved\nWBC_SNAP_0003_Nils_20261028.jpg\n'
+
+    def run_pass(self, store, results):
+        watch = Watch(machine='test-mac', clock=lambda: NOW)
+        ww.process_pending(store, FakeCameras([0]), FakeDescriber(), FakeMemory(None), watch, results, NOW,
+                           SETTINGS)
+
+    def test_image_target_is_the_snapshot_file_for_a_snapshot_and_images_otherwise(self):
+        self.assertEqual(ww.image_target('0003', self.SNAP), '/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg')
+        self.assertEqual(ww.image_target('0003', 'picture: 1920x1080, 90 KB\nstatus: ok\n'), '/Images/image-0003.jpg')
+        self.assertEqual(ww.image_target('0003', 'saved'), '/Images/image-0003.jpg')
+        self.assertEqual(ww.image_target('0003', None), '/Images/image-0003.jpg')
+
+    def test_local_snapshot_copy_without_description_is_delivered_to_snapshots_only(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        results = FakeResults({'0003': (b'photo', self.SNAP)})
+        self.run_pass(store, results)
+        self.assertEqual(store.files['/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg'], b'photo')
+        self.assertFalse([p for p in store.files if p.startswith('/Images/')])
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), self.SNAP)
+
+    def test_snapshot_description_with_missing_image_resumes_into_snapshots(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: snapshot\n'})
+        store.files['/Descriptions/description-0003.md'] = self.SNAP.encode('utf-8')
+        results = FakeResults({'0003': (b'photo', self.SNAP)})
+        self.run_pass(store, results)
+        self.assertEqual(store.files['/Snapshots/WBC_SNAP_0003_Nils_20261028.jpg'], b'photo')
+        self.assertFalse([p for p in store.files if p.startswith('/Images/')])
+
+    def test_headstart_uploads_no_image_even_when_its_description_has_no_image(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: headstart\n'})
+        store.files['/Descriptions/description-0003.md'] = b'ready\n'
+        results = FakeResults()
+        results.mark_done('0003')
+        self.run_pass(store, results)
+        self.assertFalse([p for p in store.files if p.startswith(('/Images/', '/Snapshots/'))])
+
+
+class HeadstartTests(unittest.TestCase):
+    """Headstart (BL-037, check-only): the real selection, no description, no photo upload."""
+
+    def run_headstart(self, cameras, describer=None, memory=None):
+        store = FakeStore({'request-0003.yaml': VALID + 'request_type: headstart\n'})
+        describer = describer or FakeDescriber()
+        memory = memory or FakeMemory(None)
+        results = FakeResults()
+        watch = Watch(machine='test-mac', clock=lambda: 1000.0)
+        ww.process_pending(store, cameras, describer, memory, watch, results, NOW, SETTINGS)
+        return store, describer, memory
+
+    def test_ready_after_a_passing_check_with_no_description_and_no_photo(self):
+        store, describer, memory = self.run_headstart(SelectingCameras([0, 1]))
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'ready\n')
+        self.assertEqual(describer.check_only, [True])
+        self.assertEqual(memory.remembered, [0])
+        self.assertTrue(store.text('/status.md').startswith('status: ok\n'))
+        self.assertFalse([p for p in store.files if p.startswith('/Images/') or p.startswith('/Snapshots/')])
+
+    def test_no_board_camera_when_no_camera_passes_the_check(self):
+        describer = FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
+        store, describer, memory = self.run_headstart(SelectingCameras([0]), describer=describer)
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'no board camera\n')
+        self.assertIn('code: CAMERA_FAILED', store.text('/status.md'))
+        self.assertEqual(memory.remembered, [])
+        self.assertTrue(all(describer.check_only))
+
+    def test_no_board_camera_when_cameras_cannot_select(self):
+        store, describer, memory = self.run_headstart(FakeCameras([0]))
+        self.assertEqual(store.text('/Descriptions/description-0003.md'), 'no board camera\n')
+        self.assertEqual(describer.calls, [])
+
+
 class ParseRequestTests(unittest.TestCase):
 
     def parse(self, text, number='0003'):
         return ww.parse_request(text, number, MODELS, 'haiku')
 
-    def test_minimal_request_gets_default_model(self):
-        self.assertEqual(self.parse(VALID), {'request': '0003', 'model': 'haiku'})
+    def test_minimal_request_gets_default_model_type_and_name(self):
+        self.assertEqual(self.parse(VALID), {'request': '0003', 'model': 'haiku',
+                                             'request_type': 'interaction', 'requested_by': 'Noname'})
+
+    def test_requested_by_is_kept_and_empty_means_noname(self):
+        self.assertEqual(self.parse(VALID + 'requested_by: Nils\n')['requested_by'], 'Nils')
+        self.assertEqual(self.parse(VALID + 'requested_by:\n')['requested_by'], 'Noname')
+        self.assertEqual(self.parse(VALID + 'requested_by:   \n')['requested_by'], 'Noname')
+
+    def test_request_type_is_interaction_headstart_or_snapshot(self):
+        for kind in ('interaction', 'headstart', 'snapshot'):
+            self.assertEqual(self.parse(VALID + 'request_type: %s\n' % kind)['request_type'], kind)
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'request_type: photo\n')
+
+    def test_scope_is_full_or_changes(self):
+        self.assertEqual(self.parse(VALID + 'scope: changes\n')['scope'], 'changes')
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'scope: some\n')
+
+    def test_old_mode_is_read_as_scope_once(self):
+        fields = self.parse(VALID + 'mode: snapshot\n')
+        self.assertEqual(fields['scope'], 'full')
+        self.assertEqual(fields['legacy_mode'], 'snapshot')
+        self.assertNotIn('mode', fields)
+        self.assertEqual(self.parse(VALID + 'mode: diff\n')['scope'], 'changes')
+
+    def test_old_mode_with_scope_or_bad_value_is_rejected(self):
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'mode: snapshot\nscope: full\n')
+        with self.assertRaises(ww.RequestError):
+            self.parse(VALID + 'mode: other\n')
 
     def test_all_fields_and_blank_and_comment_lines(self):
         text = ('# note\n\nrequest: "0003"\nmarker_color: red\n'
-                "region_v: 'top'\nregion_h: left\nmode: snapshot\n")
+                "region_v: 'top'\nregion_h: left\nscope: full\n")
         fields = self.parse(text)
         self.assertEqual(fields['marker_color'], 'red')
         self.assertEqual(fields['region_v'], 'top')
         self.assertEqual(fields['region_h'], 'left')
-        self.assertEqual(fields['mode'], 'snapshot')
+        self.assertEqual(fields['scope'], 'full')
 
     def test_model_field_is_taken_when_allowed(self):
         self.assertEqual(self.parse(VALID + 'model: sonnet\n')['model'], 'sonnet')
@@ -179,57 +374,16 @@ class ParseRequestTests(unittest.TestCase):
 
     def test_missing_request_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            self.parse('mode: snapshot\n')
+            self.parse('scope: full\n')
 
     def test_duplicate_field_rejected(self):
         with self.assertRaises(ww.RequestError):
-            self.parse(VALID + 'mode: snapshot\nmode: diff\n')
+            self.parse(VALID + 'scope: full\nscope: changes\n')
 
     def test_line_that_is_not_name_value_rejected(self):
         for bad in ['- red\n', 'marker_color:\n', 'nested:\n  a: b\n']:
             with self.assertRaises(ww.RequestError):
                 self.parse(VALID + bad)
-
-
-class SplitFillTests(unittest.TestCase):
-
-    def test_fill_line_is_taken_out_of_the_body(self):
-        self.assertEqual(ww.split_fill('fill: 85\n## Text\nHELLO'), (85, '## Text\nHELLO'))
-
-    def test_percent_sign_and_case_tolerated(self):
-        self.assertEqual(ww.split_fill('Fill: 90%\nbody')[0], 90)
-
-    def test_missing_or_unparsable_is_none(self):
-        self.assertEqual(ww.split_fill('body only')[0], None)
-        self.assertEqual(ww.split_fill('fill: lots\nbody')[0], None)
-        self.assertEqual(ww.split_fill('fill: 150\nbody')[0], None)
-
-    def test_board_passes_rule(self):
-        self.assertTrue(ww.board_passes(True, 85, 80))
-        self.assertFalse(ww.board_passes(True, 79, 80))
-        self.assertFalse(ww.board_passes(True, None, 80))
-        self.assertTrue(ww.board_passes(True, None, 0))
-        self.assertFalse(ww.board_passes(False, 99, 0))
-
-
-class SplitAnswerTests(unittest.TestCase):
-
-    def test_yes_strips_the_line(self):
-        self.assertEqual(ww.split_answer('whiteboard: yes\nbody\n'), (True, 'body'))
-
-    def test_no(self):
-        self.assertEqual(ww.split_answer('whiteboard: no'), (False, ''))
-
-    def test_case_and_spaces_tolerated(self):
-        self.assertEqual(ww.split_answer('  Whiteboard: YES \nx')[0], True)
-
-    def test_missing_line_is_an_error(self):
-        with self.assertRaises(ww.DescribeError):
-            ww.split_answer('This is a whiteboard with notes.')
-
-    def test_empty_answer_is_an_error(self):
-        with self.assertRaises(ww.DescribeError):
-            ww.split_answer('   \n')
 
 
 class CameraOrderTests(unittest.TestCase):
@@ -274,7 +428,7 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(len(describer.calls), 1)
         self.assertEqual(store.files['/Images/image-0003.jpg'], b'photo-1')
         desc = self.description(store)
-        self.assertTrue(desc.startswith('status: ok\n'))
+        self.assertEqual(desc.split('\n')[1], 'status: ok')
         self.assertNotIn('whiteboard:', desc)
         self.assertIn('HELLO', desc)
         self.assertEqual(memory.remembered, [1])
@@ -290,7 +444,7 @@ class ProcessTests(unittest.TestCase):
 
     def test_remembered_wrong_then_second_camera_works(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(answers={b'photo-1': 'whiteboard: no\nroom'})
+        describer = FakeDescriber(answers={b'photo-1': 'whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no\nroom'})
         handled, cameras, _, memory = self.run_one(
             store, FakeCameras([0, 1]), describer, FakeMemory(1))
         self.assertEqual(handled, ['0003'])
@@ -310,7 +464,7 @@ class ProcessTests(unittest.TestCase):
     def test_all_cameras_fail_writes_one_error_with_a_line_per_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
         cameras = FakeCameras([0, 1], plan={0: 'dark, closed lid (mean 2)', 1: 'no frame'})
-        self.run_one(store, cameras, FakeDescriber(default='whiteboard: no\nroom'))
+        self.run_one(store, cameras, FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no\nroom'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
         desc = self.description(store)
         self.assertTrue(desc.startswith('status: error\n'))
@@ -320,7 +474,7 @@ class ProcessTests(unittest.TestCase):
 
     def test_not_a_whiteboard_on_every_camera_is_an_error_without_image(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_one(store, FakeCameras([0, 1]), FakeDescriber(default='whiteboard: no'))
+        self.run_one(store, FakeCameras([0, 1]), FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
         self.assertFalse(store.exists('/Images/image-0003.jpg'))
         self.assertIn('reason: camera 0: not a whiteboard', self.description(store))
 
@@ -329,7 +483,7 @@ class ProcessTests(unittest.TestCase):
         self.run_one(store, FakeCameras([0]), FakeDescriber(default='a whiteboard with text'))
         desc = self.description(store)
         self.assertIn('status: error', desc)
-        self.assertIn('describe: answer did not start with a whiteboard line', desc)
+        self.assertIn('describe: answer has no whiteboard_visible line', desc)
 
     def test_describe_error_counts_as_failure_for_that_camera(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -466,12 +620,19 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(handled, [])
         self.assertEqual(cameras.captures, [])
 
-    def test_mode_diff_is_described_as_snapshot_with_note(self):
-        store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})
+    def test_scope_changes_is_described_as_full_with_note(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'scope: changes\n'})
         self.run_one(store)
         desc = self.description(store)
         self.assertIn('status: ok', desc)
-        self.assertIn('mode diff is not supported yet', desc)
+        self.assertIn('scope changes is not supported yet', desc)
+
+    def test_old_mode_gets_one_note_and_is_not_in_the_fields_line(self):
+        store = FakeStore({'request-0003.yaml': VALID + 'mode: diff\n'})
+        self.run_one(store)
+        desc = self.description(store)
+        self.assertEqual(desc.count('field mode is replaced by scope'), 1)
+        self.assertNotIn('legacy_mode', desc)
 
     def test_ok_description_ends_with_timing_block_and_no_final_upload_time(self):
         store = FakeStore({'request-0003.yaml': VALID})
@@ -607,7 +768,7 @@ class OrderAndStatusTests(unittest.TestCase):
 
     def test_describe_failure_status_code(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        self.run_pass(store, FakeCameras([0]), FakeDescriber(default='whiteboard: no'))
+        self.run_pass(store, FakeCameras([0]), FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no'))
         self.assertIn('code: DESCRIBE_FAILED', self.status(store))
 
     def test_crash_after_describe_is_unknown_error_and_never_described_twice(self):
@@ -682,7 +843,7 @@ class OrderAndStatusTests(unittest.TestCase):
 
     def test_unexpected_exception_in_describe_is_unknown_error(self):
         class Broken(object):
-            def describe(self, photo, fields):
+            def describe(self, photo, fields, check_only=False):
                 raise RuntimeError('bad state')
         store = FakeStore({'request-0003.yaml': VALID})
         self.run_pass(store, describer=Broken())
@@ -726,8 +887,8 @@ class BoardFillFlowTests(ProcessTests):
 
     def test_low_fill_is_refused_and_next_camera_used(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(answers={b'photo-0': 'whiteboard: yes\nfill: 30\nroom'},
-                                  default='whiteboard: yes\nfill: 90\n## Text\nHELLO')
+        describer = FakeDescriber(answers={b'photo-0': 'whiteboard_visible: yes\nboard_fill_percent: 30\nis_board_camera: yes\n\nroom'},
+                                  default='whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\n## Text\nHELLO')
         settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
         _, cameras, _, _ = self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
         self.assertEqual(cameras.captures, [0, 1])
@@ -737,16 +898,16 @@ class BoardFillFlowTests(ProcessTests):
 
     def test_missing_fill_with_check_on_fails_and_is_logged(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='whiteboard: yes\nno fill line here')
+        describer = FakeDescriber(default='whiteboard_visible: yes\nis_board_camera: yes\n\nno fill line here')
         settings = {'models': MODELS, 'default_model': 'haiku', 'min_board_fill_percent': 80}
         with self.assertLogs('whiteboard', level='INFO') as logs:
             self.run_one(store, FakeCameras([0]), describer, settings=settings)
         self.assertIn('board fill missing', self.description(store))
-        self.assertTrue(any('raw answer' in line and 'no fill line here' in line for line in logs.output))
+        self.assertTrue(any('criteria: visible yes, fill None' in line for line in logs.output))
 
     def test_check_off_ignores_fill(self):
         store = FakeStore({'request-0003.yaml': VALID})
-        describer = FakeDescriber(default='whiteboard: yes\nfill: 5\nHELLO')
+        describer = FakeDescriber(default='whiteboard_visible: yes\nboard_fill_percent: 5\nis_board_camera: yes\n\nHELLO')
         self.run_one(store, FakeCameras([0]), describer)
         self.assertIn('status: ok', self.description(store))
 
@@ -760,7 +921,7 @@ class FailedPhotoFlowTests(ProcessTests):
         folder = os.path.join(testroot.mkdtemp(), 'failed-photos')
         try:
             store = FakeStore({'request-0003.yaml': VALID})
-            describer = FakeDescriber(default='whiteboard: no')
+            describer = FakeDescriber(default='whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
             settings = dict(SETTINGS, failed_photos_dir=folder, failed_photos_keep=5)
             self.run_one(store, FakeCameras([0, 1]), describer, settings=settings)
             self.assertEqual(sorted(os.listdir(folder)), ['request-0003-cam00.jpg', 'request-0003-cam01.jpg'])

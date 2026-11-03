@@ -34,6 +34,12 @@ class StopwatchTests(unittest.TestCase):
     def test_marker_is_exact(self):
         self.assertEqual(sw.MARKER, '--- timing, do not read aloud ---')
 
+    def test_block_has_the_picture_facts_time_when_it_was_measured(self):
+        self.watch.begin('0004', 1.2)
+        self.assertNotIn('picture facts', self.watch.block())
+        self.watch.picture(0.25)
+        self.assertIn('picture facts: 0.25 ms', self.watch.block())
+
     def test_block_lists_steps_and_camera_tries(self):
         self.watch.begin('0004', 1.2)
         self.watch.set_model('haiku')

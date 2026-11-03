@@ -82,7 +82,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(data['app_key'], 'KEY')
         self.assertEqual(data['app_secret'], 'SECRET')
         self.assertEqual(data['refresh_token'], 'REFRESH')
-        self.assertEqual(data['default_model'], 'haiku')
+        self.assertEqual(data['default_model']['value'], 'haiku')
+        self.assertEqual(data['jpeg_quality']['default'], 4)
         self.assertIn('claude-sonnet-5-5', data['models'].values())
         self.assertFalse(os.path.exists(self.path + '.tmp'))
 
@@ -160,7 +161,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(paths['plist'], os.path.expanduser(
             '~/Library/LaunchAgents/com.nilsechterhoff.whiteboard-watcher.plist'))
         self.assertEqual(paths['log'], os.path.expanduser(
-            '~/Library/Logs/whiteboard-watcher.launchd.log'))
+            '~/Library/Application Support/aiaiboard/whiteboard-watcher.launchd.log'))
 
     def test_consent_needs_the_word_yes(self):
         original = builtins.input

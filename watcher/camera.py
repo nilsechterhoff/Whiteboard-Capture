@@ -19,8 +19,6 @@ CAPTURE_TIMEOUT = 25
 BRIGHTNESS_TIMEOUT = 10
 FRAMERATE = '30'    # the default (29.97) is refused by the Logitech C930e
 SIZE = '1920x1080'
-DARK_BELOW = 20     # mean brightness 0 to 255 under this counts as closed lid
-JPEG_QUALITY = 2   # ffmpeg -q:v for every JPEG the watcher writes (lower is better, 2 to 31); H23
 # rotation_degrees (config) -> ffmpeg filters; 0 = none
 ROTATION_FILTERS = {0: [], 90: ['transpose=1'], 180: ['hflip', 'vflip'], 270: ['transpose=2']}
 DEVICE = re.compile(r'\[(\d+)\] (.+)$')
@@ -90,8 +88,7 @@ def rotation_filters(degrees):
     return list(ROTATION_FILTERS[degrees])
 
 
-def capture(index, folder, rotation_degrees=0, dark_below=DARK_BELOW, run=subprocess.run, timing=None,
-            jpeg_quality=JPEG_QUALITY):
+def capture(index, folder, rotation_degrees, dark_below, jpeg_quality, run=subprocess.run, timing=None):
     """One photo from camera `index` as JPEG bytes. Raises CameraError.
 
     The first frame is the photo (no warm-up: a working camera is bright from the start).
@@ -133,7 +130,7 @@ def capture(index, folder, rotation_degrees=0, dark_below=DARK_BELOW, run=subpro
             pass
 
 
-def stream_command(index, folder, rotation_degrees=0, jpeg_quality=JPEG_QUALITY):
+def stream_command(index, folder, rotation_degrees, jpeg_quality):
     """ffmpeg command that keeps one camera open and rewrites its newest frame (about 2 per second).
     Returns (command, path of the newest frame)."""
     out = os.path.join(folder, 'agile-%d.jpg' % index)
@@ -145,7 +142,7 @@ def stream_command(index, folder, rotation_degrees=0, jpeg_quality=JPEG_QUALITY)
     return cmd, out
 
 
-def get_newest_frame(path, now, max_age=3.0, dark_below=DARK_BELOW, run=subprocess.run):
+def get_newest_frame(path, now, dark_below, max_age=3.0, run=subprocess.run):
     """The single access point to an open stream: the newest frame, if it is fresh and not dark.
     Returns (JPEG bytes, brightness). Raises CameraError (no fresh frame) or DarkFrameError."""
     if not os.path.exists(path) or now - os.stat(path).st_mtime > max_age:
@@ -179,8 +176,8 @@ def save_last(path, index, name):
 class Cameras(object):
     """What handle_request() needs: list() and capture(index)."""
 
-    def __init__(self, folder, name_filter='', rotation_degrees=0, dark_below=DARK_BELOW,
-                 run=subprocess.run, jpeg_quality=JPEG_QUALITY):
+    def __init__(self, folder, name_filter, rotation_degrees, dark_below, jpeg_quality,
+                 run=subprocess.run):
         self.folder = folder
         self.name_filter = name_filter
         self.rotation_degrees = rotation_degrees
@@ -194,5 +191,5 @@ class Cameras(object):
 
     def capture(self, index):
         self.last = {}
-        return capture(index, self.folder, self.rotation_degrees, self.dark_below, self.run, self.last,
-                       self.jpeg_quality)
+        return capture(index, self.folder, self.rotation_degrees, self.dark_below, self.jpeg_quality,
+                       run=self.run, timing=self.last)

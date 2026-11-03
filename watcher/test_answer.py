@@ -1,0 +1,147 @@
+"""Tests for the answer of the image agent: parsing the criteria and the watcher's own verdict (BL-034).
+
+Run: cd watcher && python3 -m unittest -v test_answer
+"""
+
+import unittest
+
+import answer
+import whiteboard_watcher as ww
+
+
+class ParseTests(unittest.TestCase):
+
+    def test_header_then_blank_line_then_description(self):
+        parsed = answer.parse('whiteboard_visible: yes\nboard_fill_percent: 85\nis_board_camera: yes\n\n## Text\nHELLO')
+        self.assertTrue(parsed.visible)
+        self.assertEqual(parsed.fill, 85)
+        self.assertTrue(parsed.camera)
+        self.assertEqual(parsed.body, '## Text\nHELLO')
+
+    def test_description_without_a_blank_line_still_parses(self):
+        parsed = answer.parse('whiteboard_visible: yes\nboard_fill_percent: 85\nis_board_camera: yes\nHELLO')
+        self.assertEqual(parsed.body, 'HELLO')
+
+    def test_no_stops_after_the_header(self):
+        parsed = answer.parse('whiteboard_visible: no\nboard_fill_percent: 0\nis_board_camera: no')
+        self.assertFalse(parsed.visible)
+        self.assertFalse(parsed.camera)
+        self.assertEqual(parsed.body, '')
+
+    def test_keys_and_words_are_case_insensitive_and_spaces_tolerated(self):
+        parsed = answer.parse('  Whiteboard_Visible: YES \nBOARD_FILL_PERCENT: 90%\nIs_Board_Camera: Yes\n\nx')
+        self.assertTrue(parsed.visible)
+        self.assertEqual(parsed.fill, 90)
+        self.assertEqual(parsed.body, 'x')
+
+    def test_fill_out_of_range_or_unparsable_is_none(self):
+        self.assertIsNone(answer.parse('whiteboard_visible: yes\nboard_fill_percent: lots\n\nx').fill)
+        self.assertIsNone(answer.parse('whiteboard_visible: yes\nboard_fill_percent: 150\n\nx').fill)
+        self.assertIsNone(answer.parse('whiteboard_visible: yes\n\nx').fill)
+
+    def test_missing_conclusion_is_none(self):
+        self.assertIsNone(answer.parse('whiteboard_visible: yes\nboard_fill_percent: 80\n\nx').camera)
+
+    def test_missing_whiteboard_line_is_an_error(self):
+        with self.assertRaises(ValueError):
+            answer.parse('This is a whiteboard with notes.')
+
+    def test_whiteboard_line_that_is_not_yes_or_no_is_an_error(self):
+        with self.assertRaises(ValueError):
+            answer.parse('whiteboard_visible: maybe\n\nx')
+
+    def test_empty_answer_is_an_error(self):
+        with self.assertRaises(ValueError):
+            answer.parse('   \n')
+
+
+class ChallengeTests(unittest.TestCase):
+
+    def test_none_gives_no_challenges(self):
+        parsed = answer.parse('whiteboard_visible: yes\nboard_fill_percent: 80\nchallenges_if_any: none\nis_board_camera: yes\n\nx')
+        self.assertEqual(parsed.challenges, [])
+        self.assertEqual(parsed.body, 'x')
+
+    def test_listed_challenges_come_before_the_conclusion(self):
+        raw = ('whiteboard_visible: yes\nboard_fill_percent: 70\nchallenges_if_any:\n'
+               '- glare; upper left; minor\n- hand in the frame; lower right; critical\n'
+               'is_board_camera: yes\n\nHELLO')
+        parsed = answer.parse(raw)
+        self.assertEqual(parsed.challenges, ['glare; upper left; minor', 'hand in the frame; lower right; critical'])
+        self.assertTrue(parsed.camera)
+        self.assertEqual(parsed.body, 'HELLO')
+
+    def test_challenge_on_the_key_line_is_kept_with_its_case(self):
+        parsed = answer.parse('whiteboard_visible: yes\nchallenges_if_any: Text cut off; top edge; minor\n\nx')
+        self.assertEqual(parsed.challenges, ['Text cut off; top edge; minor'])
+
+    def test_section_is_none_or_one_line_per_challenge(self):
+        self.assertEqual(answer.challenges_section([]), 'challenges_if_any: none')
+        self.assertEqual(answer.challenges_section(['a; b; minor', 'c; d; critical']),
+                         'challenges_if_any:\n- a; b; minor\n- c; d; critical')
+
+    def test_the_judge_puts_the_section_at_the_top_of_the_body(self):
+        class Describer(object):
+            def describe(self, photo, fields, check_only=False):
+                return 'whiteboard_visible: yes\nboard_fill_percent: 90\nchallenges_if_any: none\nis_board_camera: yes\n\nHELLO'
+        passes, body, label, _ = ww.judge(Describer(), {'request': '0003'}, 0, b'jpg')
+        self.assertTrue(passes)
+        self.assertEqual(body, 'challenges_if_any: none\n\nHELLO')
+
+
+class CheckOnlyTests(unittest.TestCase):
+
+    def test_check_only_passes_without_a_body(self):
+        self.assertEqual(answer.verdict(answer.Answer(True, 90, True, ''), 80, need_body=False), (True, 'ok'))
+
+    def test_check_only_still_fails_on_visibility_and_fill(self):
+        self.assertEqual(answer.verdict(answer.Answer(False, 0, False, ''), 0, need_body=False)[1], 'not a whiteboard')
+        self.assertEqual(answer.verdict(answer.Answer(True, 40, True, ''), 80, need_body=False)[1],
+                         'board fill 40 below 80')
+
+    def test_judge_check_only_returns_no_description_text(self):
+        class Describer(object):
+            def __init__(self):
+                self.flags = []
+
+            def describe(self, photo, fields, check_only=False):
+                self.flags.append(check_only)
+                return 'whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\nHELLO'
+        describer = Describer()
+        passes, body, label, _ = ww.judge(describer, {'request': '0003'}, 0, b'jpg', check_only=True)
+        self.assertTrue(passes)
+        self.assertEqual(body, '')
+        self.assertEqual(describer.flags, [True])
+
+
+class VerdictTests(unittest.TestCase):
+
+    def parsed(self, visible=True, fill=90, body='x'):
+        return answer.Answer(visible, fill, True, body)
+
+    def test_check_off_ignores_fill(self):
+        self.assertEqual(answer.verdict(self.parsed(fill=None), 0), (True, 'ok'))
+        self.assertEqual(answer.verdict(self.parsed(fill=3), 0), (True, 'ok'))
+
+    def test_fill_at_or_above_the_minimum_passes(self):
+        self.assertEqual(answer.verdict(self.parsed(fill=80), 80), (True, 'ok'))
+
+    def test_fill_below_the_minimum_fails_with_the_value(self):
+        self.assertEqual(answer.verdict(self.parsed(fill=79), 80), (False, 'board fill 79 below 80'))
+
+    def test_missing_fill_fails_when_the_check_is_on(self):
+        self.assertEqual(answer.verdict(self.parsed(fill=None), 80), (False, 'board fill missing'))
+
+    def test_no_whiteboard_fails_whatever_the_fill(self):
+        self.assertEqual(answer.verdict(self.parsed(visible=False, fill=99), 0), (False, 'not a whiteboard'))
+
+    def test_empty_description_fails(self):
+        self.assertEqual(answer.verdict(self.parsed(body=''), 0), (False, 'describe: empty description'))
+
+    def test_the_agents_conclusion_does_not_decide(self):
+        said_yes = answer.Answer(True, 50, True, 'x')
+        self.assertEqual(answer.verdict(said_yes, 80)[0], False)
+
+
+if __name__ == '__main__':
+    unittest.main()

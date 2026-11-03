@@ -5,13 +5,14 @@ Usage:
     python3 watcher/watcher.py --once --wait 60  wait up to 60 s for a request first
     python3 watcher/watcher.py                   loop (the launchd service, step D)
 
-Config: ~/Library/Application Support/whiteboard-watcher/config.json
+Config: config.json in the local folder named in paths.py (CONFIG_DIR)
   app_key, app_secret, refresh_token (from setup_dropbox.py)
   camera_name (optional, default all cameras), rotation_degrees (0, 90, 180 or 270; default 0), dark_below (default 20)
   models (short name -> model ID), default_model (a short name from models)
   min_board_fill_percent (0 = off; default 50)
-Logs:   ~/Library/Logs/whiteboard-watcher.log (no secrets)
-        ~/Library/Logs/whiteboard-watcher-timings.csv (one row per request, no whiteboard content)
+All local files are in that one folder (BL-035), see README: config.json, last_camera.json, work/,
+  results/, whiteboard-watcher.log (no secrets), whiteboard-watcher-timings.csv (one row per request, no
+  whiteboard content), failed-photos/ (kept photos the board check refused)
 Python 3.9 standard library only.
 """
 
@@ -35,15 +36,17 @@ from dropbox_store import DropboxStore     # noqa: E402
 from stopwatch import Watch                # noqa: E402
 from results import Results                # noqa: E402
 import config as config_mod                # noqa: E402
+import settings                            # noqa: E402
 import selection as selection_mod          # noqa: E402
 
-CONFIG_DIR = os.path.expanduser('~/Library/Application Support/whiteboard-watcher')
+from paths import CONFIG_DIR               # noqa: E402
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 LAST_CAMERA_PATH = os.path.join(CONFIG_DIR, 'last_camera.json')
+EXAMPLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.example.json')
 WORK_DIR = os.path.join(CONFIG_DIR, 'work')
 LOCK_PATH = os.path.join(CONFIG_DIR, 'watcher.lock')
-LOG_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher.log')
-TIMINGS_PATH = os.path.expanduser('~/Library/Logs/whiteboard-watcher-timings.csv')
+LOG_PATH = os.path.join(CONFIG_DIR, 'whiteboard-watcher.log')
+TIMINGS_PATH = os.path.join(CONFIG_DIR, 'whiteboard-watcher-timings.csv')
 POLL_SECONDS = 1
 
 log = logging.getLogger('whiteboard')
@@ -60,21 +63,25 @@ def setup_logging():
 
 
 def load_config():
+    """Reads the config file. Defaults come from the file itself (BL-040); a flat config is converted once."""
     with open(CONFIG_PATH) as handle:
-        config = json.load(handle)
-    for warning in config_mod.normalize(config):
+        raw = json.load(handle)
+    for warning in config_mod.normalize(raw):
         LEGACY_WARNINGS.append(warning)
-    config_mod.apply_defaults(config)
-    for key in ('app_key', 'app_secret', 'refresh_token', 'models', 'default_model'):
+    with open(EXAMPLE_PATH) as handle:
+        example = json.load(handle)
+    if settings.needs_conversion(raw, example):
+        raw, backup = settings.convert(raw, example, CONFIG_PATH)
+        settings.write(CONFIG_PATH, raw)
+        LEGACY_WARNINGS.append('config converted to the value/default format; backup: %s' % backup)
+    config, warnings = settings.resolve(raw)
+    LEGACY_WARNINGS.extend(warnings)
+    for key in ('app_key', 'app_secret', 'refresh_token', 'models'):
         if not config.get(key):
             raise SystemExit('config is missing %s; run setup_dropbox.py' % key)
     errors = config_mod.validate(config)
     if errors:
         raise SystemExit('config: ' + '; '.join(errors))
-    if config['default_model'] not in config['models']:
-        raise SystemExit('default_model must be one of: %s' % ', '.join(sorted(config['models'])))
-    config.setdefault('camera_name', '')
-    config.setdefault('dark_below', cam.DARK_BELOW)
     return config
 
 
@@ -163,10 +170,11 @@ def main(argv):
     atexit.register(parallel.close)
     signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(0))
     cameras = Timed(parallel, 'camera')
-    lean_describer = Describer(WORK_DIR, config['models'])
+    lean_describer = Describer(WORK_DIR, config['models'], min_fill=config['min_board_fill_percent'])
     if config_mod.session_on(config):
         describer = Timed(describe_mod.SessionDescriber(
-            WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests']), 'describe')
+            WORK_DIR, config['models'], lean_describer, config['agile_session_restart_after_requests'],
+            min_fill=config['min_board_fill_percent']), 'describe')
     else:
         describer = Timed(lean_describer, 'describe')
     memory = Memory()
@@ -175,7 +183,7 @@ def main(argv):
     settings = {'models': config['models'], 'default_model': config['default_model'],
                 'min_board_fill_percent': config['min_board_fill_percent'],
                 'failed_photos_keep': config['failed_photos_keep'],
-                'failed_photos_dir': os.path.join(os.path.dirname(LOG_PATH), config['failed_photos_folder'])}
+                'failed_photos_dir': os.path.join(CONFIG_DIR, config['failed_photos_folder'])}
     log.info('watcher start (%s)' % ('once' if args.once else 'loop'))
 
     if args.once:

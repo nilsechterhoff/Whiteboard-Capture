@@ -43,7 +43,7 @@ class Lean(object):
         self.calls = 0
         self.answer = answer
 
-    def describe(self, photo, fields):
+    def describe(self, photo, fields, check_only=False):
         self.calls += 1
         return self.answer
 
@@ -126,10 +126,18 @@ class SessionTests(unittest.TestCase):
             s.describe(b'x', FIELDS)
         self.assertEqual(self.procs, [])
 
+    def test_warm_starts_the_session_without_sending_a_photo(self):
+        s = self.make([answer_events('whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\nbody')])
+        s.warm('haiku')
+        self.assertEqual(len(self.procs), 1)
+        self.assertEqual(s.describe(b'x', FIELDS), 'whiteboard_visible: yes\nboard_fill_percent: 90\nis_board_camera: yes\n\nbody')
+        self.assertEqual(len(self.procs), 1)  # the warm session is reused, not started again
+        self.assertEqual(self.lean.calls, 0)
+
     def test_prompt_for_session_refers_to_the_attached_image(self):
         prompt = desc.build_prompt(FIELDS, photo_ref='attached')
         self.assertIn('attached image', prompt)
-        self.assertIn("exactly 'whiteboard: yes'", prompt)
+        self.assertIn("'whiteboard_visible: yes'", prompt)
 
 
 if __name__ == '__main__':

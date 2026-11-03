@@ -8,20 +8,26 @@ Python 3.9 standard library only.
 import logging
 import re
 
+import answer
 import failed_photos
+import picture
 import time
 
 REQUEST_NAME = re.compile(r'^request-(\d{4})\.yaml$')
-FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]+(.+)$')
+FIELD_LINE = re.compile(r'^([a-z_]+):[ \t]*(.*)$')  # an empty value is allowed (requested_by)
 MAX_REQUEST_AGE = 120  # seconds; older requests are closed as "expired", no photo
+REQUEST_TYPES = ('interaction', 'headstart', 'snapshot')  # BL-037, BL-038; default interaction
+SCOPES = ('full', 'changes')                              # interaction only; 'changes' is a placeholder
+LEGACY_MODES = {'snapshot': 'full', 'diff': 'changes'}   # the old mode field, read once with a note
 ALLOWED = {
     'marker_color': ('black', 'red', 'green', 'blue'),
     'region_v': ('top', 'middle', 'bottom'),
     'region_h': ('left', 'center', 'right'),
-    'mode': ('snapshot', 'diff'),
+    'request_type': REQUEST_TYPES,
+    'scope': SCOPES,
 }
-WHITEBOARD_YES = 'whiteboard: yes'
-WHITEBOARD_NO = 'whiteboard: no'
+NONAME = 'Noname'  # requested_by when the request gives none (BL-038 file names)
+SNAPSHOT_FOLDER = '/Snapshots'  # in the app folder; never cleaned up by the watcher (BL-038)
 
 
 class RequestError(ValueError):
@@ -73,48 +79,29 @@ def parse_request(text, number, models, default_model):
         if key in fields:
             raise RequestError('duplicate field: %s' % key)
         fields[key] = value
-    unknown = sorted(set(fields) - set(ALLOWED) - set(['request', 'model']))
+    unknown = sorted(set(fields) - set(ALLOWED) - set(['request', 'model', 'requested_by', 'mode']))
     if unknown:
         raise RequestError('unknown field: %s' % unknown[0])
     if fields.get('request') != number:
         raise RequestError('request field must be "%s"' % number)
+    if 'mode' in fields:  # old name of scope: read once, the description says so
+        if 'scope' in fields:
+            raise RequestError('use scope; mode is the old name and cannot be given with it')
+        if fields['mode'] not in LEGACY_MODES:
+            raise RequestError('mode: invalid value "%s"' % fields['mode'])
+        fields['legacy_mode'] = fields.pop('mode')
+        fields['scope'] = LEGACY_MODES[fields['legacy_mode']]
     for key, allowed in sorted(ALLOWED.items()):
         if key in fields and fields[key] not in allowed:
             raise RequestError('%s: invalid value "%s"' % (key, fields[key]))
+    fields['request_type'] = fields.get('request_type', 'interaction')
+    fields['requested_by'] = fields.get('requested_by', '').strip() or NONAME
     if 'model' not in fields:
         fields['model'] = default_model
     elif fields['model'] not in models:
         raise RequestError('model: invalid value "%s"; allowed: %s' % (
             fields['model'], ', '.join(sorted(models))))
     return fields
-
-
-def split_answer(text):
-    """Split a describe answer whose first line is 'whiteboard: yes' or 'whiteboard: no'."""
-    lines = text.strip().splitlines()
-    if not lines:
-        raise DescribeError('empty answer')
-    first = lines[0].strip().lower()
-    body = '\n'.join(lines[1:]).strip()
-    if first == WHITEBOARD_YES:
-        return True, body
-    if first == WHITEBOARD_NO:
-        return False, body
-    raise DescribeError('answer did not start with a whiteboard line')
-
-
-def split_fill(body):
-    """Take the 'fill: NN' line out of the describe body (it must be among the first two lines).
-    Returns (fill as int 0 to 100, or None if missing or unparsable; body without that line).
-    A missing or unparsable value is None: with the check on, it counts as a failed check."""
-    lines = body.splitlines()
-    for i, line in enumerate(lines[:2]):
-        match = re.match(r'^\s*fill\s*:\s*(\d{1,3})\s*%?\s*$', line, re.IGNORECASE)
-        if match:
-            value = int(match.group(1))
-            rest = '\n'.join(lines[:i] + lines[i + 1:]).strip()
-            return (value if value <= 100 else None), rest
-    return None, body
 
 
 def camera_order(indices, remembered):
@@ -145,10 +132,12 @@ def render_error(number, reasons):
 
 
 def render_ok(number, fields, body):
-    others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k != 'request')
+    others = ', '.join('%s=%s' % (k, fields[k]) for k in sorted(fields) if k not in ('request', 'legacy_mode'))
     lines = ['status: ok', 'request: "%s"' % number, 'fields: %s' % (others or 'none')]
-    if fields.get('mode') == 'diff':
-        lines.append('note: mode diff is not supported yet; this is a snapshot')
+    if 'legacy_mode' in fields:
+        lines.append('note: field mode is replaced by scope; read as scope %s' % fields['scope'])
+    if fields.get('scope') == 'changes':
+        lines.append('note: scope changes is not supported yet; this is a full description')
     return '\n'.join(lines) + '\n\n' + body.strip() + '\n'
 
 
@@ -171,12 +160,21 @@ def write_description(store, watch, number, text):
     return watch.clock() - started
 
 
-def upload_image(store, watch, number, photo, attempts):
-    """Upload the photo, up to `attempts` times. Returns True if it is in Dropbox."""
+def image_target(number, text):
+    """Where the photo of a request goes. A snapshot's description starts with 'saved' and names its
+    file: the photo goes to Snapshots/ and nowhere else (BL-038). Every other photo goes to Images/."""
+    lines = (text or '').splitlines()
+    if len(lines) > 1 and lines[0] == 'saved':
+        return SNAPSHOT_FOLDER + '/' + lines[1]
+    return image_path(number)
+
+
+def upload_image(store, watch, number, photo, attempts, path):
+    """Upload the photo to `path`, up to `attempts` times. Returns True if it is in Dropbox."""
     for _ in range(attempts):
         started = watch.clock()
         try:
-            publish(store, image_path(number), photo)
+            publish(store, path, photo)
         except OSError:
             continue
         watch.image_upload(watch.clock() - started)
@@ -215,7 +213,7 @@ def deliver(store, watch, results, number, photo, text):
         watch.finish('description_upload_failed', None)
         write_status(store, watch, number, False, False, False, 'DESCRIPTION_UPLOAD_FAILED')
         return
-    saved = upload_image(store, watch, number, photo, attempts=2)
+    saved = upload_image(store, watch, number, photo, attempts=2, path=image_target(number, text))
     results.mark_done(number)
     if not saved:
         watch.finish('image_upload_failed', upload_s)
@@ -229,7 +227,9 @@ def resume_image(store, watch, results, number):
     """Description is in Dropbox but the image is not: one more upload from the local copy.
     The photo is never taken again."""
     local = results.load(number)
-    saved = local is not None and upload_image(store, watch, number, local[0], attempts=1)
+    text = store.read_text(description_path(number))
+    saved = local is not None and upload_image(store, watch, number, local[0], attempts=1,
+                                               path=image_target(number, text))
     results.mark_done(number)
     if saved:
         write_status(store, watch, number, True, True, True)
@@ -275,29 +275,36 @@ def capture_once_or_retry_dark(cameras, watch, index):
 LOG = logging.getLogger('whiteboard')
 
 
-def board_passes(is_board, fill, min_fill):
-    """A camera passes only with a yes answer and, if the check is on, a fill at or above the setting."""
-    if not is_board:
-        return False
-    return min_fill == 0 or (fill is not None and fill >= min_fill)
+def judge(describer, fields, min_fill, photo, check_only=False):
+    """Describe one frame and apply the criteria (BL-034). Returns (passes, body, label, parsed).
+    The body starts with the challenges_if_any section. The watcher's verdict counts; the agent's
+    conclusion is only logged next to the measured values.
+    check_only: the criteria alone, no description and no body (headstart, snapshot).
+    Raises DescribeError."""
+    raw = describer.describe(photo, fields, check_only=check_only)
+    try:
+        parsed = answer.parse(raw)
+    except ValueError as err:
+        raise DescribeError(str(err))
+    passes, label = answer.verdict(parsed, min_fill, need_body=not check_only)
+    LOG.info('criteria: visible %s, fill %s (check %s), camera %s by the agent, %s by the watcher'
+             % ('yes' if parsed.visible else 'no', parsed.fill, min_fill or 'off',
+                'yes' if parsed.camera else 'no' if parsed.camera is not None else 'missing',
+                'yes' if passes else 'no'))
+    if parsed.challenges:
+        LOG.info('challenges: %s' % '; '.join(parsed.challenges))
+    if check_only:
+        return passes, '', label, parsed
+    body = answer.challenges_section(parsed.challenges)
+    if parsed.body:
+        body += '\n\n' + parsed.body
+    return passes, body, label, parsed
 
 
-def check_frame(describer, fields, min_fill, photo):
-    """Describe one frame and apply the board check. Returns (passes, body, label). Raises DescribeError."""
-    raw = describer.describe(photo, fields)
-    is_board, body = split_answer(raw)
-    fill, body = split_fill(body)
-    if not board_passes(is_board, fill, min_fill):
-        if not is_board:
-            label = 'not a whiteboard'
-        elif fill is None:
-            label = 'board fill missing'
-        else:
-            label = 'board fill %s below %d' % (fill, min_fill)
-        return False, body, label
-    if not body:
-        return False, body, 'describe: empty description'
-    return True, body, 'ok'
+def check_frame(describer, fields, min_fill, photo, check_only=False):
+    """(passes, body, label) for the selection check. Raises DescribeError."""
+    passes, body, label, _ = judge(describer, fields, min_fill, photo, check_only)
+    return passes, body, label
 
 
 def keep_rejected(settings, number, rejected):
@@ -309,6 +316,88 @@ def keep_rejected(settings, number, rejected):
                                   settings.get('failed_photos_keep', 0))
     except OSError as err:
         LOG.info('request %s: could not keep the failed photos: %s' % (number, err))
+
+
+def ok_text(number, fields, body, photo, watch):
+    """The description for a good photo: the picture facts line on top, then the body and the timing block."""
+    facts, ms = picture.line(photo)
+    watch.picture(ms)
+    return facts + '\n' + render_ok(number, fields, body) + '\n' + watch.block()
+
+
+def headstart(store, cameras, describer, memory, watch, results, settings, number, fields, devices):
+    """Headstart (BL-037): the real camera selection with the check-only call (no description). The
+    stream that passed stays open, the others close; nothing unchecked is opened. The description
+    says only 'ready', or 'no board camera'. No photo is uploaded."""
+    min_fill = settings.get('min_board_fill_percent', 0)
+    check = lambda index, photo: check_frame(describer, fields, min_fill, photo, check_only=True)
+    outcome = None
+    if hasattr(cameras, 'select_board'):
+        try:
+            outcome = cameras.select_board([i for i, _ in devices], check, watch, memory.index())
+        except OSError as err:
+            LOG.info('request %s: headstart streams could not start (%s)' % (number, err))
+    ok = outcome is not None and outcome.ok
+    if ok:
+        memory.remember(outcome.index)
+        if hasattr(describer, 'warm'):
+            describer.warm(fields['model'])
+    text = 'ready\n' if ok else 'no board camera\n'
+    results.mark_done(number)
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        watch.finish('description_upload_failed', None)
+        write_status(store, watch, number, False, False, False, 'DESCRIPTION_UPLOAD_FAILED')
+        return
+    watch.finish('ok' if ok else 'error', upload_s)
+    write_status(store, watch, number, ok, True, False, None if ok else 'CAMERA_FAILED')
+
+
+def snapshot_name(number, requested_by, now):
+    """WBC_SNAP_NNNN_Name_YYYYMMDD.jpg: NNNN is the request number; Name is the first 6 letters or
+    digits of requested_by, first letter capital ('Noname' if none is left)."""
+    letters = re.sub(r'[^A-Za-z0-9]', '', requested_by)[:6]
+    name = letters[:1].upper() + letters[1:] if letters else NONAME
+    return 'WBC_SNAP_%s_%s_%s.jpg' % (number, name, time.strftime('%Y%m%d', time.localtime(now)))
+
+
+def snapshot(store, cameras, describer, memory, watch, results, settings, number, fields, devices):
+    """Snapshot (BL-038): one photo from the board camera, saved to Snapshots/ in Dropbox. The watcher
+    never deletes anything there. The description says only 'saved' and the file name."""
+    if not hasattr(cameras, 'select_board'):
+        fail(store, watch, results, number, ['camera: snapshots need the camera selection'], 'CAMERA_FAILED')
+        return
+    min_fill = settings.get('min_board_fill_percent', 0)
+    check = lambda index, photo: check_frame(describer, fields, min_fill, photo, check_only=True)
+    try:
+        outcome = cameras.select_board([i for i, _ in devices], check, watch, memory.index())
+    except OSError as err:
+        fail(store, watch, results, number, ['camera: the streams could not start (%s)' % err], 'CAMERA_FAILED')
+        return
+    if not outcome.ok:
+        fail(store, watch, results, number, outcome.reasons or ['camera: no board camera'], 'CAMERA_FAILED')
+        return
+    memory.remember(outcome.index)
+    name = snapshot_name(number, fields['requested_by'], watch.clock())
+    text = 'saved\n%s\n' % name
+    results.save(number, outcome.photo, text)  # local copy first
+    try:
+        publish(store, SNAPSHOT_FOLDER + '/' + name, outcome.photo)
+    except OSError:
+        results.mark_done(number)
+        watch.finish('image_upload_failed', None)
+        write_status(store, watch, number, False, False, False, 'IMAGE_UPLOAD_FAILED')
+        return
+    results.mark_done(number)
+    try:
+        upload_s = write_description(store, watch, number, text)
+    except OSError:
+        watch.finish('description_upload_failed', None)
+        write_status(store, watch, number, False, False, True, 'DESCRIPTION_UPLOAD_FAILED')
+        return
+    watch.finish('ok', upload_s)
+    write_status(store, watch, number, True, True, True)
 
 
 def handle_request(store, cameras, describer, memory, watch, results, settings, name):
@@ -330,6 +419,12 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         fail(store, watch, results, number, ['camera: %s' % err], 'CAMERA_FAILED')
         return
     watch.camera_list(watch.clock() - started)
+    if fields['request_type'] == 'headstart':
+        headstart(store, cameras, describer, memory, watch, results, settings, number, fields, devices)
+        return
+    if fields['request_type'] == 'snapshot':
+        snapshot(store, cameras, describer, memory, watch, results, settings, number, fields, devices)
+        return
     if hasattr(cameras, 'select_board'):
         check = lambda index, photo: check_frame(describer, fields, settings.get('min_board_fill_percent', 0), photo)
         try:
@@ -339,7 +434,7 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             outcome = None
         if outcome is not None:
             if outcome.ok:
-                text = render_ok(number, fields, outcome.body) + '\n' + watch.block()
+                text = ok_text(number, fields, outcome.body, outcome.photo, watch)
                 results.save(number, outcome.photo, text)  # local copy first: a restart never takes a new photo
                 memory.remember(outcome.index)
                 deliver(store, watch, results, number, outcome.photo, text)
@@ -359,10 +454,9 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
         info = dict(getattr(cameras, 'last', {}))
         started = watch.clock()
         described = True
+        min_fill = settings.get('min_board_fill_percent', 0)
         try:
-            raw = describer.describe(photo, fields)
-            is_board, body = split_answer(raw)
-            fill, body = split_fill(body)
+            passes, body, label, _ = judge(describer, fields, min_fill, photo)
         except DescribeError as err:
             describe_s = watch.clock() - started
             watch.camera_try(index, 'describe error: %s' % err, info.get('photo_s'),
@@ -370,25 +464,13 @@ def handle_request(store, cameras, describer, memory, watch, results, settings, 
             reasons.append('camera %d: describe: %s' % (index, err))
             continue
         describe_s = watch.clock() - started
-        min_fill = settings.get('min_board_fill_percent', 0)
-        LOG.info('request %s camera %d raw answer: %r; fill %s; check %s'
-                 % (number, index, raw, fill, min_fill or 'off'))
-        if not board_passes(is_board, fill, min_fill):
-            label = 'not a whiteboard' if not is_board else (
-                'board fill %s below %d' % (fill, min_fill) if fill is not None
-                else 'board fill missing')
+        if not passes:
             watch.camera_try(index, label, info.get('photo_s'), info.get('brightness'), describe_s)
             reasons.append('camera %d: %s' % (index, label))
             rejected.append((index, photo))
             continue
-        if not body:
-            watch.camera_try(index, 'describe: empty description', info.get('photo_s'),
-                             info.get('brightness'), describe_s)
-            reasons.append('camera %d: describe: empty description' % index)
-            rejected.append((index, photo))
-            continue
         watch.camera_try(index, 'ok', info.get('photo_s'), info.get('brightness'), describe_s)
-        text = render_ok(number, fields, body) + '\n' + watch.block()
+        text = ok_text(number, fields, body, photo, watch)
         results.save(number, photo, text)  # local copy first: a restart never takes a new photo
         memory.remember(index)
         deliver(store, watch, results, number, photo, text)
@@ -424,7 +506,8 @@ def process_pending(store, cameras, describer, memory, watch, results, now, sett
             if results.is_done(number):
                 continue
             if store.exists(description_path(number)):
-                if store.exists(image_path(number)):
+                target = image_target(number, store.read_text(description_path(number)))
+                if store.exists(target):
                     results.mark_done(number)  # already complete (older run): no status needed
                 else:
                     resume_image(store, watch, results, number)
